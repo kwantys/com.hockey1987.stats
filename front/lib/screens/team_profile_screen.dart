@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/team_models.dart';
 import '../models/game.dart';
 import '../services/nhl_api_service.dart';
@@ -58,71 +60,33 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
     });
 
     try {
-      // Завантажити team info якщо ще немає
+      Map<String, dynamic>? teamInfoData;
+
+      // 1. Завантажити team info, якщо ще немає
       if (_team == null) {
         print('Loading team info for team ${widget.teamId}');
-        final teamData = await _apiService.getTeamInfo(widget.teamId);
-        _team = Team.fromJson(teamData);
+        teamInfoData = await _apiService.getTeamInfo(widget.teamId);
+        _team = Team.fromJson(teamInfoData);
         print('Team loaded: ${_team!.teamName}');
       }
 
-      // Завантажити roster
+      // 2. Завантажити roster
       print('Loading roster...');
-      final rosterData = await _apiService.getTeamRoster(widget.teamId);
+      // Використовуємо teamAbbrev для оптимізації
+      final rosterData = await _apiService.getTeamRoster(
+          widget.teamId,
+          teamAbbrev: _team?.teamAbbrev
+      );
 
-      final forwards = rosterData['forwards'] as List? ?? [];
-      final defensemen = rosterData['defensemen'] as List? ?? [];
-      final goalies = rosterData['goalies'] as List? ?? [];
+      // Використовуємо хелпер для парсингу
+      final roster = _parseRosterData(rosterData);
 
-      print('Roster: ${forwards.length} F, ${defensemen.length} D, ${goalies.length} G');
-
-      final roster = <Player>[];
-
-      // Обробити forwards
-      for (var json in forwards) {
-        try {
-          roster.add(Player.fromJson(json));
-        } catch (e) {
-          print('Error parsing forward: $e');
-        }
-      }
-
-      // Обробити defensemen
-      for (var json in defensemen) {
-        try {
-          roster.add(Player.fromJson(json));
-        } catch (e) {
-          print('Error parsing defenseman: $e');
-        }
-      }
-
-      // Обробити goalies
-      for (var json in goalies) {
-        try {
-          roster.add(Player.fromJson(json));
-        } catch (e) {
-          print('Error parsing goalie: $e');
-        }
-      }
-
-      // Завантажити schedule (наступні 5 ігор)
+      // 3. Завантажити schedule
       print('Loading schedule...');
       final scheduleData = await _apiService.getTeamSchedule(widget.teamId);
-      final games = scheduleData['games'] as List? ?? [];
 
-      print('Schedule: ${games.length} games');
-
-      final schedule = <TeamScheduleGame>[];
-      for (var json in games) {
-        try {
-          final game = TeamScheduleGame.fromJson(json, widget.teamId);
-          schedule.add(game);
-          print('Parsed game: ${game.gameId} vs ${game.opponentAbbrev}');
-        } catch (e) {
-          print('Error parsing game: $e');
-          print('Game data: $json');
-        }
-      }
+      // Використовуємо хелпер для парсингу
+      final schedule = _parseScheduleData(scheduleData);
 
       setState(() {
         _roster = roster;
@@ -132,16 +96,131 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
 
       print('✅ Loaded ${roster.length} players and ${schedule.length} games');
 
-      // TODO: Зберегти в кеш
+      // Зберігаємо у фоновому режимі, не чекаємо await
+      _saveToCache(teamInfoData, rosterData, scheduleData);
+
     } catch (e) {
       print('❌ Error loading team data: $e');
 
-      // TODO: Спробувати завантажити з кешу
-      setState(() {
-        _errorMessage = 'Failed to load team data';
-        _isLoading = false;
-        _isOffline = true;
-      });
+      print('🔄 Attempting to load from cache...');
+      final loadedFromCache = await _loadFromCache();
+
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          if (loadedFromCache) {
+            _isOffline = true; // Показуємо банер "Offline"
+            print('✅ Data restored from cache');
+          } else {
+            _errorMessage = 'Failed to load team data. Check internet connection.';
+          }
+        });
+      }
+    }
+  }
+
+  /// Парсинг складу команди
+  List<Player> _parseRosterData(Map<String, dynamic> rosterData) {
+    final forwards = rosterData['forwards'] as List? ?? [];
+    final defensemen = rosterData['defensemen'] as List? ?? [];
+    final goalies = rosterData['goalies'] as List? ?? [];
+
+    print('Roster found: ${forwards.length} F, ${defensemen.length} D, ${goalies.length} G');
+
+    final roster = <Player>[];
+
+    // Допоміжна функція для додавання
+    void addPlayers(List list) {
+      for (var json in list) {
+        try {
+          roster.add(Player.fromJson(json));
+        } catch (e) {
+          print('Error parsing player: $e');
+        }
+      }
+    }
+
+    addPlayers(forwards);
+    addPlayers(defensemen);
+    addPlayers(goalies);
+
+    return roster;
+  }
+
+  /// Парсинг розкладу
+  List<TeamScheduleGame> _parseScheduleData(Map<String, dynamic> scheduleData) {
+    final games = scheduleData['games'] as List? ?? [];
+    print('Schedule found: ${games.length} games');
+
+    final schedule = <TeamScheduleGame>[];
+    for (var json in games) {
+      try {
+        schedule.add(TeamScheduleGame.fromJson(json, widget.teamId));
+      } catch (e) {
+        print('Error parsing game: $e');
+      }
+    }
+    return schedule;
+  }
+
+  /// Збереження даних у кеш (SharedPreferences)
+  Future<void> _saveToCache(Map<String, dynamic>? teamInfo, Map<String, dynamic> roster, Map<String, dynamic> schedule) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // Кешуємо інфо про команду (якщо завантажували)
+      if (teamInfo != null) {
+        await prefs.setString('cache_team_info_${widget.teamId}', json.encode(teamInfo));
+      }
+
+      // Кешуємо сирі JSON дані
+      await prefs.setString('cache_team_roster_${widget.teamId}', json.encode(roster));
+      await prefs.setString('cache_team_schedule_${widget.teamId}', json.encode(schedule));
+
+      print('💾 Team data cached successfully for ID ${widget.teamId}');
+    } catch (e) {
+      print('⚠️ Failed to save to cache: $e');
+    }
+  }
+
+  /// Завантаження даних з кешу
+  Future<bool> _loadFromCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      bool hasData = false;
+
+      // 1. Відновлюємо команду
+      if (_team == null) {
+        final teamJson = prefs.getString('cache_team_info_${widget.teamId}');
+        if (teamJson != null) {
+          final teamData = json.decode(teamJson);
+          _team = Team.fromJson(teamData);
+          hasData = true;
+        }
+      } else {
+        hasData = true; // Команда вже є
+      }
+
+      // 2. Відновлюємо склад
+      final rosterJson = prefs.getString('cache_team_roster_${widget.teamId}');
+      if (rosterJson != null) {
+        final rosterData = json.decode(rosterJson);
+        _roster = _parseRosterData(rosterData);
+        hasData = true;
+      }
+
+      // 3. Відновлюємо розклад
+      final scheduleJson = prefs.getString('cache_team_schedule_${widget.teamId}');
+      if (scheduleJson != null) {
+        final scheduleData = json.decode(scheduleJson);
+        _schedule = _parseScheduleData(scheduleData);
+        hasData = true;
+      }
+
+      return hasData;
+    } catch (e) {
+      print('⚠️ Error loading from cache: $e');
+      return false;
     }
   }
 
@@ -183,12 +262,55 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
     );
   }
 
-  void _openGameHub(TeamScheduleGame game) async {
-    // Створити Game об'єкт з TeamScheduleGame
-    // TODO: Краще завантажити повну інформацію про гру
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Loading game ${game.gameId}...')),
-    );
+  Future<void> _openGameHub(TeamScheduleGame scheduleGame) async {
+    try {
+      // Показуємо спіннер
+      ScaffoldMessenger.of(context).removeCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: const [
+              SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)
+              ),
+              SizedBox(width: 16),
+              Text('Loading game details...'),
+            ],
+          ),
+          duration: const Duration(seconds: 1), // Трохи менша тривалість
+        ),
+      );
+
+      // ВИПРАВЛЕННЯ: Завантажуємо гру напряму за ID.
+      // Більше ніяких пошуків по датах та тижнях.
+      final game = await _apiService.getGameById(scheduleGame.gameId);
+
+      if (!mounted) return;
+
+      // Прибираємо SnackBar перед переходом
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+
+      // Переходимо на екран гри
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => GameHubScreen(game: game),
+        ),
+      );
+    } catch (e) {
+      print('❌ Error opening game hub: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not load game details. Try again later.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   @override

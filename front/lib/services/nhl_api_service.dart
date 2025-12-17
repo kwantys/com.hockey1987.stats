@@ -275,59 +275,72 @@ class NHLApiService {
       final teams = standings['standings'] as List? ?? [];
 
       for (var team in teams) {
-        if (team['teamId'] == teamId) {
+        // ВИПРАВЛЕННЯ: Перевіряємо і 'teamId', і 'id', бо API може відрізнятися
+        final currentId = team['teamId'] ?? team['id'];
+        if (currentId == teamId) {
           return team;
         }
       }
 
-      throw Exception('Team not found');
+      throw Exception('Team not found in standings');
     } catch (e) {
       print('Error in getTeamInfo: $e');
       throw Exception('Error fetching team info: $e');
     }
   }
 
-  Future<Map<String, dynamic>> getTeamRoster(int teamId) async {
+  Future<Map<String, dynamic>> getTeamRoster(int teamId, {String? teamAbbrev}) async {
     try {
       print('🏒 Loading roster for team $teamId');
 
-      // Спробувати новий API спочатку
-      final teamInfo = await getTeamInfo(teamId);
-      final teamAbbrevData = teamInfo['teamAbbrev'];
-      final teamAbbrev = teamAbbrevData is Map
-          ? (teamAbbrevData['default'] ?? '')
-          : teamAbbrevData.toString();
+      String abbrev = teamAbbrev ?? '';
 
-      print('   Team abbrev: $teamAbbrev');
-
-      // ВАРІАНТ 1: Новий NHL API - roster endpoint
-      try {
-        final url = Uri.parse('$_baseUrl/roster/$teamAbbrev/20252026');
-        print('   Trying new API: $url');
-
-        final response = await http.get(url);
-
-        if (response.statusCode == 200) {
-          final data = json.decode(response.body);
-          print('   ✅ New API worked! Keys: ${data.keys}');
-
-          // Витягнути гравців
-          final forwards = data['forwards'] as List? ?? [];
-          final defensemen = data['defensemen'] as List? ?? [];
-          final goalies = data['goalies'] as List? ?? [];
-
-          print('   Found: ${forwards.length}F, ${defensemen.length}D, ${goalies.length}G');
-
-          if (forwards.isNotEmpty || defensemen.isNotEmpty || goalies.isNotEmpty) {
-            return {
-              'forwards': forwards,
-              'defensemen': defensemen,
-              'goalies': goalies,
-            };
-          }
+      // Якщо абревіатури немає, пробуємо знайти (резервний варіант)
+      if (abbrev.isEmpty) {
+        try {
+          final teamInfo = await getTeamInfo(teamId);
+          final teamAbbrevData = teamInfo['teamAbbrev'];
+          abbrev = teamAbbrevData is Map
+              ? (teamAbbrevData['default'] ?? '')
+              : teamAbbrevData.toString();
+        } catch (e) {
+          print('   ⚠️ Could not fetch team info for abbrev: $e');
+          // Продовжуємо, бо можемо спробувати старий API, який використовує ID
         }
-      } catch (e) {
-        print('   ❌ New API failed: $e');
+      }
+
+      print('   Team abbrev: $abbrev');
+
+      // ВАРІАНТ 1: Новий NHL API - roster endpoint (Потребує абревіатуру)
+      if (abbrev.isNotEmpty) {
+        try {
+          final url = Uri.parse('$_baseUrl/roster/$abbrev/20252026');
+          print('   Trying new API: $url');
+
+          final response = await http.get(url);
+
+          if (response.statusCode == 200) {
+            final data = json.decode(response.body);
+            print('   ✅ New API worked! Keys: ${data.keys}');
+
+            // Витягнути гравців
+            final forwards = data['forwards'] as List? ?? [];
+            final defensemen = data['defensemen'] as List? ?? [];
+            final goalies = data['goalies'] as List? ?? [];
+
+            print('   Found: ${forwards.length}F, ${defensemen.length}D, ${goalies.length}G');
+
+            if (forwards.isNotEmpty || defensemen.isNotEmpty || goalies.isNotEmpty) {
+              return {
+                'forwards': forwards,
+                'defensemen': defensemen,
+                'goalies': goalies,
+              };
+            }
+          }
+        } catch (e) {
+          print('   ❌ New API failed: $e');
+        }
       }
 
       // ВАРІАНТ 2: Старий NHL Stats API
@@ -517,4 +530,53 @@ class NHLApiService {
       throw Exception('Error fetching team stats: $e');
     }
   }
+
+  /// Знайти конкретну гру в розкладі (шукає у всьому тижні)
+  Future<Game> getGameBySchedule(int gameId, String dateStr) async {
+    try {
+      final url = Uri.parse('$_baseUrl/schedule/$dateStr');
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        final jsonData = json.decode(response.body);
+        final gameWeek = jsonData['gameWeek'] as List?;
+
+        if (gameWeek != null) {
+          // Проходимо по всіх днях тижня, а не тільки по dateStr
+          for (var day in gameWeek) {
+            final games = day['games'] as List?;
+            if (games != null) {
+              for (var gameJson in games) {
+                if (gameJson['id'] == gameId) {
+                  return Game.fromNHLv2Json(gameJson);
+                }
+              }
+            }
+          }
+        }
+        throw Exception('Game $gameId not found in schedule week for $dateStr');
+      } else {
+        throw Exception('Failed to load schedule: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error in getGameBySchedule: $e');
+      throw e;
+    }
+  }
+
+  /// Отримати об'єкт Game за ID (найнадійніший спосіб)
+  Future<Game> getGameById(int gameId) async {
+    try {
+      // Використовуємо landing endpoint, який дає деталі конкретної гри
+      final data = await getGameDetails(gameId);
+
+      // Створюємо об'єкт Game з отриманих даних
+      // endpoint landing має структуру сумісну з fromNHLv2Json
+      return Game.fromNHLv2Json(data);
+    } catch (e) {
+      print('Error in getGameById: $e');
+      throw Exception('Failed to load game $gameId');
+    }
+  }
+
 }

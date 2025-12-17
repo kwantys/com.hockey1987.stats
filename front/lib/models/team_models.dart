@@ -153,6 +153,15 @@ class Player {
         ? (lastNameData['default'] ?? '')
         : (lastNameData ?? '');
 
+    // === ВИПРАВЛЕННЯ: Допоміжна функція для отримання локалізованих рядків ===
+    String? getLocalizedStr(dynamic data) {
+      if (data == null) return null;
+      if (data is Map) {
+        return data['default']?.toString() ?? data.values.first.toString();
+      }
+      return data.toString();
+    }
+
     return Player(
       playerId: json['playerId'] ?? json['id'] ?? 0,
       firstName: firstName,
@@ -161,8 +170,11 @@ class Player {
       position: json['positionCode'] ?? json['position'] ?? '',
       shoots: json['shootsCatches'] ?? json['shoots'],
       birthDate: json['birthDate'],
-      birthCity: json['birthCity'],
-      birthCountry: json['birthCountry'],
+
+      // Використовуємо виправлену логіку
+      birthCity: getLocalizedStr(json['birthCity']),
+      birthCountry: getLocalizedStr(json['birthCountry']),
+
       height: json['heightInCentimeters'],
       weight: json['weightInKilograms'],
       gamesPlayed: json['gamesPlayed'] ?? 0,
