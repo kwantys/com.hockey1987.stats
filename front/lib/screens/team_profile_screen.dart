@@ -7,6 +7,7 @@ import '../models/game.dart';
 import '../services/nhl_api_service.dart';
 import '../services/favorites_service.dart';
 import 'game_hub_screen.dart';
+import 'player_insight_screen.dart'; // Додайте цей імпорт
 
 /// Team Profile Screen - профіль команди з roster та schedule
 class TeamProfileScreen extends StatefulWidget {
@@ -256,9 +257,14 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
   }
 
   void _openPlayerInsight(Player player) {
-    // TODO: Navigate to Player Insight screen
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Opening ${player.fullName} profile...')),
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PlayerInsightScreen(
+          playerId: player.playerId,
+          playerName: player.fullName,
+        ),
+      ),
     );
   }
 

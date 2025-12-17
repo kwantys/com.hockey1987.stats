@@ -1,27 +1,31 @@
 import 'dart:convert';
 
-/// Модель для збереження улюблених ігор, команд та налаштувань сповіщень
+/// Модель для збереження улюблених ігор, команд, гравців та налаштувань сповіщень
 class FavoritesStore {
-  final List<int> favoriteGames; // GameID улюблених ігор
+  final List<int> favoriteGames;   // GameID улюблених ігор
   final List<int> gamesWithAlerts; // GameID ігор з увімкненими сповіщеннями
-  final List<int> favoriteTeams; // ДОДАНО: TeamID улюблених команд
+  final List<int> favoriteTeams;   // TeamID улюблених команд
+  final List<int> favoritePlayers; // ДОДАНО: PlayerID улюблених гравців
 
   const FavoritesStore({
     this.favoriteGames = const [],
     this.gamesWithAlerts = const [],
-    this.favoriteTeams = const [], // ДОДАНО
+    this.favoriteTeams = const [],
+    this.favoritePlayers = const [], // ДОДАНО
   });
 
   /// Створити копію з новими значеннями
   FavoritesStore copyWith({
     List<int>? favoriteGames,
     List<int>? gamesWithAlerts,
-    List<int>? favoriteTeams, // ДОДАНО
+    List<int>? favoriteTeams,
+    List<int>? favoritePlayers, // ДОДАНО
   }) {
     return FavoritesStore(
       favoriteGames: favoriteGames ?? this.favoriteGames,
       gamesWithAlerts: gamesWithAlerts ?? this.gamesWithAlerts,
-      favoriteTeams: favoriteTeams ?? this.favoriteTeams, // ДОДАНО
+      favoriteTeams: favoriteTeams ?? this.favoriteTeams,
+      favoritePlayers: favoritePlayers ?? this.favoritePlayers, // ДОДАНО
     );
   }
 
@@ -85,7 +89,7 @@ class FavoritesStore {
   /// Чи увімкнені сповіщення для гри
   bool hasAlertsForGame(int gameId) => gamesWithAlerts.contains(gameId);
 
-  // ========== МЕТОДИ ДЛЯ КОМАНД (ДОДАНО) ==========
+  // ========== МЕТОДИ ДЛЯ КОМАНД ==========
 
   /// Додати команду до улюблених
   FavoritesStore addFavoriteTeam(int teamId) {
@@ -116,6 +120,37 @@ class FavoritesStore {
   /// Чи команда в улюблених
   bool isFavoriteTeam(int teamId) => favoriteTeams.contains(teamId);
 
+  // ========== МЕТОДИ ДЛЯ ГРАВЦІВ (НОВЕ) ==========
+
+  /// Додати гравця до улюблених
+  FavoritesStore addFavoritePlayer(int playerId) {
+    if (favoritePlayers.contains(playerId)) {
+      return this;
+    }
+    return copyWith(
+      favoritePlayers: [...favoritePlayers, playerId],
+    );
+  }
+
+  /// Видалити гравця з улюблених
+  FavoritesStore removeFavoritePlayer(int playerId) {
+    return copyWith(
+      favoritePlayers: favoritePlayers.where((id) => id != playerId).toList(),
+    );
+  }
+
+  /// Перемкнути статус улюбленого гравця
+  FavoritesStore toggleFavoritePlayer(int playerId) {
+    if (favoritePlayers.contains(playerId)) {
+      return removeFavoritePlayer(playerId);
+    } else {
+      return addFavoritePlayer(playerId);
+    }
+  }
+
+  /// Чи гравець в улюблених
+  bool isFavoritePlayer(int playerId) => favoritePlayers.contains(playerId);
+
   // ========== JSON SERIALIZATION ==========
 
   /// Конвертувати в JSON
@@ -123,7 +158,8 @@ class FavoritesStore {
     return {
       'favoriteGames': favoriteGames,
       'gamesWithAlerts': gamesWithAlerts,
-      'favoriteTeams': favoriteTeams, // ДОДАНО
+      'favoriteTeams': favoriteTeams,
+      'favoritePlayers': favoritePlayers, // ДОДАНО
     };
   }
 
@@ -138,7 +174,11 @@ class FavoritesStore {
           ?.map((e) => e as int)
           .toList() ??
           [],
-      favoriteTeams: (json['favoriteTeams'] as List?) // ДОДАНО
+      favoriteTeams: (json['favoriteTeams'] as List?)
+          ?.map((e) => e as int)
+          .toList() ??
+          [],
+      favoritePlayers: (json['favoritePlayers'] as List?) // ДОДАНО
           ?.map((e) => e as int)
           .toList() ??
           [],
@@ -158,6 +198,7 @@ class FavoritesStore {
   String toString() {
     return 'FavoritesStore(games: ${favoriteGames.length}, '
         'alerts: ${gamesWithAlerts.length}, '
-        'teams: ${favoriteTeams.length})'; // ДОДАНО
+        'teams: ${favoriteTeams.length}, '
+        'players: ${favoritePlayers.length})'; // ДОДАНО
   }
 }

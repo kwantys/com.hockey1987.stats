@@ -269,24 +269,81 @@ class NHLApiService {
   /// Отримати інформацію про команду
   Future<Map<String, dynamic>> getTeamInfo(int teamId) async {
     try {
-      // NHL API не має окремого endpoint для team info
-      // Можна використати standings та знайти потрібну команду
-      final standings = await getStandingsRaw();
-      final teams = standings['standings'] as List? ?? [];
+      print('🔍 Searching for team $teamId in standings...');
 
-      for (var team in teams) {
-        // ВИПРАВЛЕННЯ: Перевіряємо і 'teamId', і 'id', бо API може відрізнятися
-        final currentId = team['teamId'] ?? team['id'];
-        if (currentId == teamId) {
-          return team;
+      // 1. Отримуємо свіжу таблицю ліги
+      final standingsData = await getStandingsRaw();
+      final standingsList = standingsData['standings'] as List? ?? [];
+
+      // 2. Шукаємо команду у списку
+      for (var teamData in standingsList) {
+        // У новому API ID може бути числом або рядком, приводимо до спільного типу
+        // Зазвичай це поле 'teamName' (об'єкт) або просто структура команди
+
+        // В API standings структура виглядає так:
+        // { "teamName": { "default": "Rangers" }, "teamAbbrev": { "default": "NYR" }, "teamLogo": "..." ... }
+        // Але ID там не завжди явно 'id', іноді треба шукати у лінках або співставляти інакше.
+        // ОДНАК, зазвичай Standings endpoint не повертає прямий "id" на верхньому рівні в усіх версіях.
+
+        // АЛЕ: Ми можемо використати абревіатуру, якщо знаємо її.
+        // Якщо ні - перебираємо все.
+
+        // ПЕРЕВІРКА: Давайте перевіримо всі можливі варіанти назв полів ID
+        // На жаль, v1/standings/now не завжди віддає чистий integer ID на верхньому рівні.
+        // Але ми спробуємо знайти за збігом абревіатури, якщо знаємо її, або за іншими ознаками.
+
+        // Найкращий варіант для MyRink (де ми знаємо тільки ID):
+        // Оскільки у нас немає гарантованого способу дістати ID з standings (там часто немає поля id),
+        // нам доведеться використати резервний список відповідності ID до Абревіатури,
+        // а потім шукати в Standings по абревіатурі.
+
+        // Чекайте! Standings екран якось працює? Так.
+        // Там модель TeamStanding парсить json. Давайте глянемо, чи є там ID.
+        // Так, TeamStanding має поле 'teamId'. Значить JSON його містить?
+        // Давайте подивимось лог. Ви надсилали лог, де ключів ID не було видно.
+
+        // РІШЕННЯ:
+        // Ми використаємо простий map відповідності ID -> Абревіатура для пошуку в Standings.
+        // Це надійно.
+
+        String targetAbbrev = _getTeamAbbrevById(teamId);
+
+        // Отримуємо абревіатуру поточної команди в циклі
+        final abbrevMap = teamData['teamAbbrev'];
+        String currentAbbrev = '';
+        if (abbrevMap is Map) {
+          currentAbbrev = abbrevMap['default']?.toString() ?? '';
+        } else {
+          currentAbbrev = abbrevMap?.toString() ?? '';
+        }
+
+        if (currentAbbrev == targetAbbrev) {
+          // Знайшли! Додаємо ID вручну, щоб модель Team.fromJson спрацювала
+          final mutableMap = Map<String, dynamic>.from(teamData);
+          mutableMap['id'] = teamId;
+          mutableMap['teamId'] = teamId;
+          return mutableMap;
         }
       }
 
-      throw Exception('Team not found in standings');
+      throw Exception('Team $teamId not found in standings');
     } catch (e) {
       print('Error in getTeamInfo: $e');
       throw Exception('Error fetching team info: $e');
     }
+  }
+
+  /// Допоміжний метод: Отримати абревіатуру за ID
+  /// Це потрібно, бо в новому API Standings іноді важко знайти команду суто за ID без додаткових запитів.
+  String _getTeamAbbrevById(int id) {
+    const map = {
+      1: 'NJD', 2: 'NYI', 3: 'NYR', 4: 'PHI', 5: 'PIT', 6: 'BOS', 7: 'BUF', 8: 'MTL',
+      9: 'OTT', 10: 'TOR', 12: 'CAR', 13: 'FLA', 14: 'TBL', 15: 'WSH', 16: 'CHI',
+      17: 'DET', 18: 'NSH', 19: 'STL', 20: 'CGY', 21: 'COL', 22: 'EDM', 23: 'VAN',
+      24: 'ANA', 25: 'DAL', 26: 'LAK', 28: 'SJS', 29: 'CBJ', 30: 'MIN', 52: 'WPG',
+      53: 'ARI', 54: 'VGK', 55: 'SEA', 59: 'UTA'
+    };
+    return map[id] ?? '';
   }
 
   Future<Map<String, dynamic>> getTeamRoster(int teamId, {String? teamAbbrev}) async {
@@ -576,6 +633,40 @@ class NHLApiService {
     } catch (e) {
       print('Error in getGameById: $e');
       throw Exception('Failed to load game $gameId');
+    }
+  }
+
+  /// Отримати детальну інформацію про гравця (Landing)
+  Future<Map<String, dynamic>> getPlayerLanding(int playerId) async {
+    try {
+      final url = Uri.parse('$_baseUrl/player/$playerId/landing');
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        throw Exception('Failed to load player landing: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error fetching player landing: $e');
+      rethrow;
+    }
+  }
+
+  /// Отримати лог ігор гравця за поточний сезон
+  Future<Map<String, dynamic>> getPlayerGameLog(int playerId) async {
+    try {
+      final url = Uri.parse('$_baseUrl/player/$playerId/game-log/now');
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        throw Exception('Failed to load player game log: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error fetching player game log: $e');
+      return {'gameLog': []}; // Повертаємо пустий список, щоб не ламати UI
     }
   }
 

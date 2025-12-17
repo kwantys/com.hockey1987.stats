@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../screens/scores_screen.dart';
-import '../screens/standings_screen.dart'; // ДОДАНО
+import '../screens/standings_screen.dart';
+import '../screens/my_rink_screen.dart';
 
 /// Головний навігаційний екран з Bottom Navigation Bar
 class MainNavigation extends StatefulWidget {
@@ -16,10 +17,10 @@ class _MainNavigationState extends State<MainNavigation> {
   // Список екранів для кожної вкладки
   final List<Widget> _screens = [
     const ScoresScreen(),
-    const StandingsScreen(), // ОНОВЛЕНО - використовуємо справжній екран
+    const StandingsScreen(),
     const TeamsScreen(),
     const InsightScreen(),
-    const FavoritesScreen(),
+    const MyRinkScreen(),
   ];
 
   @override
@@ -207,24 +208,3 @@ class InsightScreen extends StatelessWidget {
   }
 }
 
-class FavoritesScreen extends StatelessWidget {
-  const FavoritesScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Favorites'),
-        backgroundColor: const Color(0xFF0F265C),
-        foregroundColor: Colors.white,
-        automaticallyImplyLeading: false,
-      ),
-      body: const Center(
-        child: Text(
-          'Favorites Screen',
-          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-        ),
-      ),
-    );
-  }
-}

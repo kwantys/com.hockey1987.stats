@@ -1,9 +1,13 @@
+import 'package:flutter/foundation.dart'; // Додайте цей імпорт!
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/favorites_store.dart';
 
-/// Сервіс для роботи з улюбленими іграми та командами
+/// Сервіс для роботи з улюбленими іграми, командами та гравцями
 class FavoritesService {
   static const String _favoritesKey = 'favorites_store';
+
+  // !!! НОВЕ: Сповіщувач про зміни. Статичний, щоб був доступний всюди.
+  static final ValueNotifier<int> updateNotifier = ValueNotifier(0);
 
   /// Завантажити favorites
   Future<FavoritesStore> loadFavorites() async {
@@ -26,7 +30,14 @@ class FavoritesService {
     try {
       final prefs = await SharedPreferences.getInstance();
       final jsonString = favorites.toJsonString();
-      return await prefs.setString(_favoritesKey, jsonString);
+      final result = await prefs.setString(_favoritesKey, jsonString);
+
+      // !!! НОВЕ: Сповіщаємо слухачів, що дані змінилися
+      if (result) {
+        updateNotifier.value++;
+      }
+
+      return result;
     } catch (e) {
       return false;
     }
@@ -34,104 +45,124 @@ class FavoritesService {
 
   // ========== МЕТОДИ ДЛЯ ІГОР ==========
 
-  /// Додати гру до улюблених
   Future<bool> addFavoriteGame(int gameId) async {
     final favorites = await loadFavorites();
     final updated = favorites.addFavoriteGame(gameId);
     return await saveFavorites(updated);
   }
 
-  /// Видалити гру з улюблених
   Future<bool> removeFavoriteGame(int gameId) async {
     final favorites = await loadFavorites();
     final updated = favorites.removeFavoriteGame(gameId);
     return await saveFavorites(updated);
   }
 
-  /// Перемкнути статус улюбленої гри
   Future<bool> toggleFavoriteGame(int gameId) async {
     final favorites = await loadFavorites();
     final updated = favorites.toggleFavoriteGame(gameId);
     return await saveFavorites(updated);
   }
 
-  /// Увімкнути сповіщення для гри
   Future<bool> enableAlertsForGame(int gameId) async {
     final favorites = await loadFavorites();
     final updated = favorites.enableAlertsForGame(gameId);
     return await saveFavorites(updated);
   }
 
-  /// Вимкнути сповіщення для гри
   Future<bool> disableAlertsForGame(int gameId) async {
     final favorites = await loadFavorites();
     final updated = favorites.disableAlertsForGame(gameId);
     return await saveFavorites(updated);
   }
 
-  /// Перемкнути сповіщення для гри
   Future<bool> toggleAlertsForGame(int gameId) async {
     final favorites = await loadFavorites();
     final updated = favorites.toggleAlertsForGame(gameId);
     return await saveFavorites(updated);
   }
 
-  /// Чи гра в улюблених
   Future<bool> isFavorite(int gameId) async {
     final favorites = await loadFavorites();
     return favorites.isFavoriteGame(gameId);
   }
 
-  /// Чи увімкнені сповіщення для гри
   Future<bool> hasAlerts(int gameId) async {
     final favorites = await loadFavorites();
     return favorites.hasAlertsForGame(gameId);
   }
 
-  // ========== МЕТОДИ ДЛЯ КОМАНД (ДОДАНО) ==========
+  Future<List<int>> getFavoriteGames() async {
+    final favorites = await loadFavorites();
+    return favorites.favoriteGames;
+  }
 
-  /// Додати команду до улюблених
+  Future<List<int>> getGamesWithAlerts() async {
+    final favorites = await loadFavorites();
+    return favorites.gamesWithAlerts;
+  }
+
+  // ========== МЕТОДИ ДЛЯ КОМАНД ==========
+
   Future<bool> addFavoriteTeam(int teamId) async {
     final favorites = await loadFavorites();
     final updated = favorites.addFavoriteTeam(teamId);
     return await saveFavorites(updated);
   }
 
-  /// Видалити команду з улюблених
   Future<bool> removeFavoriteTeam(int teamId) async {
     final favorites = await loadFavorites();
     final updated = favorites.removeFavoriteTeam(teamId);
     return await saveFavorites(updated);
   }
 
-  /// Перемкнути статус улюбленої команди
   Future<bool> toggleFavoriteTeam(int teamId) async {
     final favorites = await loadFavorites();
     final updated = favorites.toggleFavoriteTeam(teamId);
     return await saveFavorites(updated);
   }
 
-  /// Чи команда в улюблених
   Future<bool> isFavoriteTeam(int teamId) async {
     final favorites = await loadFavorites();
     return favorites.isFavoriteTeam(teamId);
   }
 
-  /// Отримати список улюблених команд
   Future<List<int>> getFavoriteTeams() async {
     final favorites = await loadFavorites();
     return favorites.favoriteTeams;
   }
 
-  /// Отримати список улюблених ігор
-  Future<List<int>> getFavoriteGames() async {
+  // ========== МЕТОДИ ДЛЯ ГРАВЦІВ ==========
+
+  Future<bool> addFavoritePlayer(int playerId) async {
     final favorites = await loadFavorites();
-    return favorites.favoriteGames;
+    final updated = favorites.addFavoritePlayer(playerId);
+    return await saveFavorites(updated);
+  }
+
+  Future<bool> removeFavoritePlayer(int playerId) async {
+    final favorites = await loadFavorites();
+    final updated = favorites.removeFavoritePlayer(playerId);
+    return await saveFavorites(updated);
+  }
+
+  Future<bool> toggleFavoritePlayer(int playerId) async {
+    final favorites = await loadFavorites();
+    final updated = favorites.toggleFavoritePlayer(playerId);
+    return await saveFavorites(updated);
+  }
+
+  Future<bool> isFavoritePlayer(int playerId) async {
+    final favorites = await loadFavorites();
+    return favorites.isFavoritePlayer(playerId);
+  }
+
+  Future<List<int>> getFavoritePlayers() async {
+    final favorites = await loadFavorites();
+    return favorites.favoritePlayers;
   }
 
   // ========== ЗАГАЛЬНІ МЕТОДИ ==========
 
-  /// Очистити всі favorites
   Future<bool> clearFavorites() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -139,22 +170,5 @@ class FavoritesService {
     } catch (e) {
       return false;
     }
-  }
-
-  /// Очистити тільки ігри
-  Future<bool> clearFavoriteGames() async {
-    final favorites = await loadFavorites();
-    final updated = favorites.copyWith(
-      favoriteGames: [],
-      gamesWithAlerts: [],
-    );
-    return await saveFavorites(updated);
-  }
-
-  /// Очистити тільки команди
-  Future<bool> clearFavoriteTeams() async {
-    final favorites = await loadFavorites();
-    final updated = favorites.copyWith(favoriteTeams: []);
-    return await saveFavorites(updated);
   }
 }
