@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../screens/scores_screen.dart';
 import '../screens/standings_screen.dart';
 import '../screens/my_rink_screen.dart';
+import '../screens/teams_screen.dart';
 
 /// Головний навігаційний екран з Bottom Navigation Bar
 class MainNavigation extends StatefulWidget {
@@ -164,27 +165,7 @@ class _MainNavigationState extends State<MainNavigation> {
 // PLACEHOLDER ЕКРАНИ (замініть на справжні екрани)
 // ============================================================
 
-class TeamsScreen extends StatelessWidget {
-  const TeamsScreen({super.key});
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Teams'),
-        backgroundColor: const Color(0xFF0F265C),
-        foregroundColor: Colors.white,
-        automaticallyImplyLeading: false,
-      ),
-      body: const Center(
-        child: Text(
-          'Teams Screen',
-          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-        ),
-      ),
-    );
-  }
-}
 
 class InsightScreen extends StatelessWidget {
   const InsightScreen({super.key});

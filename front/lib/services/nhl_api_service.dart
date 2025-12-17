@@ -670,4 +670,56 @@ class NHLApiService {
     }
   }
 
+  Future<List<Map<String, dynamic>>> getAllTeams() async {
+    // Use hardcoded list of all 32 NHL teams with their real IDs
+    // These IDs match what getTeamInfo() expects
+
+    final allTeams = [
+      // Atlantic Division
+      {'id': 6, 'name': 'Boston Bruins', 'division': 'Atlantic', 'abbreviation': 'BOS'},
+      {'id': 7, 'name': 'Buffalo Sabres', 'division': 'Atlantic', 'abbreviation': 'BUF'},
+      {'id': 17, 'name': 'Detroit Red Wings', 'division': 'Atlantic', 'abbreviation': 'DET'},
+      {'id': 13, 'name': 'Florida Panthers', 'division': 'Atlantic', 'abbreviation': 'FLA'},
+      {'id': 8, 'name': 'Montréal Canadiens', 'division': 'Atlantic', 'abbreviation': 'MTL'},
+      {'id': 9, 'name': 'Ottawa Senators', 'division': 'Atlantic', 'abbreviation': 'OTT'},
+      {'id': 14, 'name': 'Tampa Bay Lightning', 'division': 'Atlantic', 'abbreviation': 'TBL'},
+      {'id': 10, 'name': 'Toronto Maple Leafs', 'division': 'Atlantic', 'abbreviation': 'TOR'},
+
+      // Metropolitan Division
+      {'id': 12, 'name': 'Carolina Hurricanes', 'division': 'Metropolitan', 'abbreviation': 'CAR'},
+      {'id': 29, 'name': 'Columbus Blue Jackets', 'division': 'Metropolitan', 'abbreviation': 'CBJ'},
+      {'id': 1, 'name': 'New Jersey Devils', 'division': 'Metropolitan', 'abbreviation': 'NJD'},
+      {'id': 2, 'name': 'New York Islanders', 'division': 'Metropolitan', 'abbreviation': 'NYI'},
+      {'id': 3, 'name': 'New York Rangers', 'division': 'Metropolitan', 'abbreviation': 'NYR'},
+      {'id': 4, 'name': 'Philadelphia Flyers', 'division': 'Metropolitan', 'abbreviation': 'PHI'},
+      {'id': 5, 'name': 'Pittsburgh Penguins', 'division': 'Metropolitan', 'abbreviation': 'PIT'},
+      {'id': 15, 'name': 'Washington Capitals', 'division': 'Metropolitan', 'abbreviation': 'WSH'},
+
+      // Central Division
+      {'id': 16, 'name': 'Chicago Blackhawks', 'division': 'Central', 'abbreviation': 'CHI'},
+      {'id': 21, 'name': 'Colorado Avalanche', 'division': 'Central', 'abbreviation': 'COL'},
+      {'id': 25, 'name': 'Dallas Stars', 'division': 'Central', 'abbreviation': 'DAL'},
+      {'id': 30, 'name': 'Minnesota Wild', 'division': 'Central', 'abbreviation': 'MIN'},
+      {'id': 18, 'name': 'Nashville Predators', 'division': 'Central', 'abbreviation': 'NSH'},
+      {'id': 19, 'name': 'St. Louis Blues', 'division': 'Central', 'abbreviation': 'STL'},
+      {'id': 52, 'name': 'Winnipeg Jets', 'division': 'Central', 'abbreviation': 'WPG'},
+
+      // Pacific Division
+      {'id': 24, 'name': 'Anaheim Ducks', 'division': 'Pacific', 'abbreviation': 'ANA'},
+      {'id': 20, 'name': 'Calgary Flames', 'division': 'Pacific', 'abbreviation': 'CGY'},
+      {'id': 22, 'name': 'Edmonton Oilers', 'division': 'Pacific', 'abbreviation': 'EDM'},
+      {'id': 26, 'name': 'Los Angeles Kings', 'division': 'Pacific', 'abbreviation': 'LAK'},
+      {'id': 28, 'name': 'San Jose Sharks', 'division': 'Pacific', 'abbreviation': 'SJS'},
+      {'id': 55, 'name': 'Seattle Kraken', 'division': 'Pacific', 'abbreviation': 'SEA'},
+      {'id': 23, 'name': 'Vancouver Canucks', 'division': 'Pacific', 'abbreviation': 'VAN'},
+      {'id': 54, 'name': 'Vegas Golden Knights', 'division': 'Pacific', 'abbreviation': 'VGK'},
+
+      // Utah Hockey Club (new team)
+      {'id': 59, 'name': 'Utah Hockey Club', 'division': 'Central', 'abbreviation': 'UTA'},
+    ];
+
+    print('🏒 Loaded ${allTeams.length} NHL teams');
+    return allTeams;
+  }
+
 }

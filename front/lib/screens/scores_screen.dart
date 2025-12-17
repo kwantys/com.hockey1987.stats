@@ -2,11 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/game.dart';
 import '../models/favorites_store.dart';
-import '../services/nhl_api_service.dart'; // СПРАВЖНІЙ API
+import '../services/nhl_api_service.dart';
 import '../services/favorites_service.dart';
 import '../services/preferences_service.dart';
-import '../widgets/custom_date_picker.dart'; // Кастомний date picker
-import 'game_hub_screen.dart'; // Game Hub
+import '../widgets/custom_date_picker.dart';
+import 'game_hub_screen.dart';
+import 'outcome_studio_screen.dart'; // ДОДАНО
 
 class ScoresScreen extends StatefulWidget {
   const ScoresScreen({super.key});
@@ -18,7 +19,7 @@ class ScoresScreen extends StatefulWidget {
 class _ScoresScreenState extends State<ScoresScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  final NHLApiService _apiService = NHLApiService(); // СПРАВЖНІЙ API
+  final NHLApiService _apiService = NHLApiService();
   final FavoritesService _favoritesService = FavoritesService();
   final PreferencesService _preferencesService = PreferencesService();
 
@@ -33,7 +34,6 @@ class _ScoresScreenState extends State<ScoresScreen>
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
 
-    // Нормалізувати дату (без часу)
     final now = DateTime.now();
     _selectedDate = DateTime(now.year, now.month, now.day);
 
@@ -41,23 +41,18 @@ class _ScoresScreenState extends State<ScoresScreen>
   }
 
   Future<void> _initialize() async {
-    // Завантажити налаштування та визначити початкову дату
     final prefs = await _preferencesService.loadPreferences();
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
 
     setState(() {
       _selectedDate = _getDateFromPreference(prefs.defaultGameDay);
-      // Якщо дата в майбутньому, використати сьогодні
       if (_selectedDate.isAfter(today)) {
         _selectedDate = today;
       }
     });
 
-    // Завантажити favorites
     await _loadFavorites();
-
-    // Завантажити ігри
     await _loadGames();
   }
 
@@ -68,12 +63,11 @@ class _ScoresScreenState extends State<ScoresScreen>
         return DateTime(now.year, now.month, now.day - 1);
       case 'tomorrow':
         return DateTime(now.year, now.month, now.day + 1);
-      default: // 'today'
+      default:
         return DateTime(now.year, now.month, now.day);
     }
   }
 
-  // ДОДАНО: Окремий метод для завантаження favorites
   Future<void> _loadFavorites() async {
     final favorites = await _favoritesService.loadFavorites();
     setState(() {
@@ -88,7 +82,6 @@ class _ScoresScreenState extends State<ScoresScreen>
     });
 
     try {
-      // Формат для NHL Stats API: 2024-12-16
       final dateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
       print('Loading games for date: $dateStr');
 
@@ -99,7 +92,6 @@ class _ScoresScreenState extends State<ScoresScreen>
         _isLoading = false;
       });
 
-      // Debug
       _debugGameStatuses();
     } catch (e) {
       print('Error loading games: $e');
@@ -119,7 +111,6 @@ class _ScoresScreenState extends State<ScoresScreen>
   List<Game> get _finalGames =>
       _allGames.where((game) => game.isFinal).toList();
 
-  // Debug - показати статуси всіх ігор
   void _debugGameStatuses() {
     print('=== GAME STATUSES DEBUG ===');
     print('Current DateTime: ${DateTime.now()}');
@@ -172,24 +163,24 @@ class _ScoresScreenState extends State<ScoresScreen>
 
   Future<void> _toggleFavorite(int gameId) async {
     await _favoritesService.toggleFavoriteGame(gameId);
-    await _loadFavorites(); // ВИПРАВЛЕНО: Використовуємо окремий метод
+    await _loadFavorites();
   }
 
   Future<void> _toggleAlerts(int gameId) async {
     await _favoritesService.toggleAlertsForGame(gameId);
-    await _loadFavorites(); // ВИПРАВЛЕНО: Використовуємо окремий метод
+    await _loadFavorites();
   }
 
+  // ВИПРАВЛЕНО: Тепер відкриває Outcome Studio з предзаповненою грою
   void _openOutcomeStudio(Game game) {
-    // TODO: Navigate to Outcome Studio with pre-filled teams
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Opening Outcome Studio for ${game.awayTeamName} @ ${game.homeTeamName}'),
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => OutcomeStudioScreen(prefilledGame: game),
       ),
     );
   }
 
-  // ВИПРАВЛЕНО: Тепер метод async і обробляє результат з GameHubScreen
   Future<void> _openGameCenter(Game game) async {
     final result = await Navigator.push<bool>(
       context,
@@ -198,7 +189,6 @@ class _ScoresScreenState extends State<ScoresScreen>
       ),
     );
 
-    // Якщо favorites змінились (result == true), перезавантажуємо їх
     if (result == true) {
       print('Favorites changed in GameHub, reloading...');
       await _loadFavorites();
@@ -214,11 +204,10 @@ class _ScoresScreenState extends State<ScoresScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white, // Білий фон
+      backgroundColor: Colors.white,
       body: SafeArea(
         child: Column(
           children: [
-            // Header з кольором #8ACEF2
             Container(
               color: const Color(0xFF8ACEF2),
               child: Column(
@@ -229,8 +218,6 @@ class _ScoresScreenState extends State<ScoresScreen>
                 ],
               ),
             ),
-
-            // Games List
             Expanded(
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator())
@@ -241,11 +228,14 @@ class _ScoresScreenState extends State<ScoresScreen>
           ],
         ),
       ),
+      // ВИПРАВЛЕНО: FAB відкриває Outcome Studio без предзаповнення
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {
-          // TODO: Open Outcome Studio
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Opening Outcome Studio...')),
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const OutcomeStudioScreen(),
+            ),
           );
         },
         backgroundColor: const Color(0xFFFFA500),
@@ -299,7 +289,7 @@ class _ScoresScreenState extends State<ScoresScreen>
   }
 
   Widget _buildDateNavigation() {
-    final dateFormat = DateFormat('EEE, MMM d'); // Wed, Dec 12 (коротше)
+    final dateFormat = DateFormat('EEE, MMM d');
     final dateStr = dateFormat.format(_selectedDate).toUpperCase();
     final isToday = _selectedDate.year == DateTime.now().year &&
         _selectedDate.month == DateTime.now().month &&
@@ -314,7 +304,6 @@ class _ScoresScreenState extends State<ScoresScreen>
       ),
       child: Row(
         children: [
-          // Left arrow
           IconButton(
             onPressed: _previousDay,
             icon: const Icon(Icons.chevron_left, color: Color(0xFF0F265C)),
@@ -322,8 +311,6 @@ class _ScoresScreenState extends State<ScoresScreen>
             constraints: const BoxConstraints(minWidth: 32),
             iconSize: 24,
           ),
-
-          // Date display (flexible)
           Expanded(
             child: GestureDetector(
               onTap: _selectDate,
@@ -356,8 +343,6 @@ class _ScoresScreenState extends State<ScoresScreen>
               ),
             ),
           ),
-
-          // Today button (if not today)
           if (!isToday)
             Container(
               margin: const EdgeInsets.only(left: 4),
@@ -384,8 +369,6 @@ class _ScoresScreenState extends State<ScoresScreen>
                 ),
               ),
             ),
-
-          // Right arrow
           IconButton(
             onPressed: _nextDay,
             icon: const Icon(Icons.chevron_right, color: Color(0xFF0F265C)),
@@ -447,7 +430,7 @@ class _ScoresScreenState extends State<ScoresScreen>
     return RefreshIndicator(
       onRefresh: () async {
         await _loadGames();
-        await _loadFavorites(); // ДОДАНО: Також оновлюємо favorites при pull-to-refresh
+        await _loadFavorites();
       },
       color: const Color(0xFF0F265C),
       child: ListView.builder(
@@ -480,7 +463,6 @@ class _ScoresScreenState extends State<ScoresScreen>
         borderRadius: BorderRadius.circular(12),
         child: Column(
           children: [
-            // Time info (for live games)
             if (tabType == 'live' && game.liveTimeDisplay.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
@@ -508,22 +490,18 @@ class _ScoresScreenState extends State<ScoresScreen>
                   ],
                 ),
               ),
-
-            // Teams and scores
             Row(
               children: [
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Away team
                       _buildTeamRow(
                         game.awayTeamName,
                         game.awayTeamScore,
                         tabType == 'final' && game.winner == 'away',
                       ),
                       const SizedBox(height: 8),
-                      // Home team
                       _buildTeamRow(
                         game.homeTeamName,
                         game.homeTeamScore,
@@ -532,13 +510,10 @@ class _ScoresScreenState extends State<ScoresScreen>
                     ],
                   ),
                 ),
-
-                // Icons
                 Column(
                   children: [
                     Row(
                       children: [
-                        // Favorite
                         IconButton(
                           onPressed: () => _toggleFavorite(game.gameId),
                           icon: Icon(
@@ -550,7 +525,6 @@ class _ScoresScreenState extends State<ScoresScreen>
                                 : const Color(0xFF6B9EB8),
                           ),
                         ),
-                        // Alerts
                         IconButton(
                           onPressed: () => _toggleAlerts(game.gameId),
                           icon: Icon(
@@ -564,7 +538,6 @@ class _ScoresScreenState extends State<ScoresScreen>
                         ),
                       ],
                     ),
-                    // Predict
                     IconButton(
                       onPressed: () => _openOutcomeStudio(game),
                       icon: const Icon(
@@ -576,8 +549,6 @@ class _ScoresScreenState extends State<ScoresScreen>
                 ),
               ],
             ),
-
-            // Upcoming time or Final status
             if (tabType == 'upcoming')
               Padding(
                 padding: const EdgeInsets.only(top: 8),

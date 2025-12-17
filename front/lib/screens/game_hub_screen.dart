@@ -9,6 +9,7 @@ import '../widgets/game_tabs/penalties_tab.dart';
 import '../widgets/game_tabs/boxscore_tab.dart';
 import '../widgets/game_tabs/recap_tab.dart';
 import '../../utils/game_data_parser.dart';
+import 'outcome_studio_screen.dart';
 
 /// Game Hub (Game Center) - детальна інформація про матч
 class GameHubScreen extends StatefulWidget {
@@ -116,9 +117,12 @@ class _GameHubScreenState extends State<GameHubScreen>
   }
 
   void _openPredict() {
-    // TODO: Navigate to Outcome Studio
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Opening Outcome Studio...')),
+    // Navigate to Outcome Studio with prefilled game
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => OutcomeStudioScreen(prefilledGame: widget.game),
+      ),
     );
   }
 

@@ -7,6 +7,7 @@ import '../models/game.dart';
 import '../services/nhl_api_service.dart';
 import '../services/favorites_service.dart';
 import 'game_hub_screen.dart';
+import 'outcome_studio_screen.dart';
 import 'player_insight_screen.dart'; // Додайте цей імпорт
 
 /// Team Profile Screen - профіль команди з roster та schedule
@@ -245,13 +246,26 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
       return;
     }
 
-    // TODO: Navigate to Outcome Studio with next game
+    // Get next game from schedule
     final nextGame = _schedule.first;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Opening Outcome Studio for ${nextGame.opponentAbbrev} matchup...',
-        ),
+
+    // Create a Game object from TeamScheduleGame
+    final game = Game(
+      gameId: nextGame.gameId,
+      status: nextGame.gameState,
+      statusText: nextGame.gameState,
+      dateTime: nextGame.gameDate,
+      homeTeamId: nextGame.isHomeGame ? widget.teamId : 0,
+      homeTeamName: nextGame.isHomeGame ? (_team?.teamName ?? 'Home') : nextGame.opponentName,
+      awayTeamId: nextGame.isHomeGame ? 0 : widget.teamId,
+      awayTeamName: nextGame.isHomeGame ? nextGame.opponentName : (_team?.teamName ?? 'Away'),
+    );
+
+    // Navigate to Outcome Studio with prefilled game
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => OutcomeStudioScreen(prefilledGame: game),
       ),
     );
   }
