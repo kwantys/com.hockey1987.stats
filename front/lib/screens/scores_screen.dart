@@ -55,10 +55,7 @@ class _ScoresScreenState extends State<ScoresScreen>
     });
 
     // Завантажити favorites
-    final favorites = await _favoritesService.loadFavorites();
-    setState(() {
-      _favorites = favorites;
-    });
+    await _loadFavorites();
 
     // Завантажити ігри
     await _loadGames();
@@ -74,6 +71,14 @@ class _ScoresScreenState extends State<ScoresScreen>
       default: // 'today'
         return DateTime(now.year, now.month, now.day);
     }
+  }
+
+  // ДОДАНО: Окремий метод для завантаження favorites
+  Future<void> _loadFavorites() async {
+    final favorites = await _favoritesService.loadFavorites();
+    setState(() {
+      _favorites = favorites;
+    });
   }
 
   Future<void> _loadGames() async {
@@ -167,18 +172,12 @@ class _ScoresScreenState extends State<ScoresScreen>
 
   Future<void> _toggleFavorite(int gameId) async {
     await _favoritesService.toggleFavoriteGame(gameId);
-    final updatedFavorites = await _favoritesService.loadFavorites();
-    setState(() {
-      _favorites = updatedFavorites;
-    });
+    await _loadFavorites(); // ВИПРАВЛЕНО: Використовуємо окремий метод
   }
 
   Future<void> _toggleAlerts(int gameId) async {
     await _favoritesService.toggleAlertsForGame(gameId);
-    final updatedFavorites = await _favoritesService.loadFavorites();
-    setState(() {
-      _favorites = updatedFavorites;
-    });
+    await _loadFavorites(); // ВИПРАВЛЕНО: Використовуємо окремий метод
   }
 
   void _openOutcomeStudio(Game game) {
@@ -190,13 +189,20 @@ class _ScoresScreenState extends State<ScoresScreen>
     );
   }
 
-  void _openGameCenter(Game game) {
-    Navigator.push(
+  // ВИПРАВЛЕНО: Тепер метод async і обробляє результат з GameHubScreen
+  Future<void> _openGameCenter(Game game) async {
+    final result = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
         builder: (context) => GameHubScreen(game: game),
       ),
     );
+
+    // Якщо favorites змінились (result == true), перезавантажуємо їх
+    if (result == true) {
+      print('Favorites changed in GameHub, reloading...');
+      await _loadFavorites();
+    }
   }
 
   @override
@@ -439,7 +445,10 @@ class _ScoresScreenState extends State<ScoresScreen>
     }
 
     return RefreshIndicator(
-      onRefresh: _loadGames,
+      onRefresh: () async {
+        await _loadGames();
+        await _loadFavorites(); // ДОДАНО: Також оновлюємо favorites при pull-to-refresh
+      },
       color: const Color(0xFF0F265C),
       child: ListView.builder(
         padding: const EdgeInsets.all(16),
@@ -533,10 +542,10 @@ class _ScoresScreenState extends State<ScoresScreen>
                         IconButton(
                           onPressed: () => _toggleFavorite(game.gameId),
                           icon: Icon(
-                            _favorites.isFavorite(game.gameId)
+                            _favorites.isFavoriteGame(game.gameId)
                                 ? Icons.star
                                 : Icons.star_outline,
-                            color: _favorites.isFavorite(game.gameId)
+                            color: _favorites.isFavoriteGame(game.gameId)
                                 ? const Color(0xFF0F265C)
                                 : const Color(0xFF6B9EB8),
                           ),
@@ -545,10 +554,10 @@ class _ScoresScreenState extends State<ScoresScreen>
                         IconButton(
                           onPressed: () => _toggleAlerts(game.gameId),
                           icon: Icon(
-                            _favorites.hasAlerts(game.gameId)
+                            _favorites.hasAlertsForGame(game.gameId)
                                 ? Icons.notifications
                                 : Icons.notifications_outlined,
-                            color: _favorites.hasAlerts(game.gameId)
+                            color: _favorites.hasAlertsForGame(game.gameId)
                                 ? const Color(0xFFFFA500)
                                 : const Color(0xFF6B9EB8),
                           ),

@@ -32,6 +32,7 @@ class _GameHubScreenState extends State<GameHubScreen>
   Map<String, dynamic>? _gameData;
   bool _isLoading = true;
   bool _isFavorite = false;
+  bool _favoritesChanged = false; // ДОДАНО: Трекінг змін
   String? _errorMessage;
 
   @override
@@ -105,9 +106,13 @@ class _GameHubScreenState extends State<GameHubScreen>
     });
   }
 
+  // ВИПРАВЛЕНО: Метод тепер повідомляє про зміни
   Future<void> _toggleFavorite() async {
     await _favoritesService.toggleFavoriteGame(widget.game.gameId);
     await _checkFavorite();
+
+    // Позначаємо що favorites змінились
+    _favoritesChanged = true;
   }
 
   void _openPredict() {
@@ -119,20 +124,27 @@ class _GameHubScreenState extends State<GameHubScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFE8F4F8),
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildHeader(),
-            _buildScoreboard(),
-            _buildTabs(),
-            Expanded(
-              child: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _buildTabContent(),
-            ),
-          ],
+    // ВИПРАВЛЕНО: При поверненні назад передаємо інформацію про зміни
+    return WillPopScope(
+      onWillPop: () async {
+        Navigator.pop(context, _favoritesChanged);
+        return false;
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFE8F4F8),
+        body: SafeArea(
+          child: Column(
+            children: [
+              _buildHeader(),
+              _buildScoreboard(),
+              _buildTabs(),
+              Expanded(
+                child: _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _buildTabContent(),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -144,9 +156,9 @@ class _GameHubScreenState extends State<GameHubScreen>
       color: const Color(0xFF8ACEF2),
       child: Row(
         children: [
-          // Back button
+          // Back button - ВИПРАВЛЕНО: Передаємо інформацію про зміни
           IconButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(context, _favoritesChanged),
             icon: const Icon(Icons.arrow_back, color: Color(0xFF0F265C)),
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(),

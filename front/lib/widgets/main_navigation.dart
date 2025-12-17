@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../screens/scores_screen.dart';
+import '../screens/standings_screen.dart'; // ДОДАНО
 
 /// Головний навігаційний екран з Bottom Navigation Bar
 class MainNavigation extends StatefulWidget {
@@ -15,7 +16,7 @@ class _MainNavigationState extends State<MainNavigation> {
   // Список екранів для кожної вкладки
   final List<Widget> _screens = [
     const ScoresScreen(),
-    const StandingsScreen(),
+    const StandingsScreen(), // ОНОВЛЕНО - використовуємо справжній екран
     const TeamsScreen(),
     const InsightScreen(),
     const FavoritesScreen(),
@@ -161,28 +162,6 @@ class _MainNavigationState extends State<MainNavigation> {
 // ============================================================
 // PLACEHOLDER ЕКРАНИ (замініть на справжні екрани)
 // ============================================================
-
-class StandingsScreen extends StatelessWidget {
-  const StandingsScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Standings'),
-        backgroundColor: const Color(0xFF0F265C),
-        foregroundColor: Colors.white,
-        automaticallyImplyLeading: false,
-      ),
-      body: const Center(
-        child: Text(
-          'Standings Screen',
-          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-        ),
-      ),
-    );
-  }
-}
 
 class TeamsScreen extends StatelessWidget {
   const TeamsScreen({super.key});
