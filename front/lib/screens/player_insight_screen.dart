@@ -8,7 +8,7 @@ import 'game_hub_screen.dart';
 
 class PlayerInsightScreen extends StatefulWidget {
   final int playerId;
-  final String playerName; // Для заголовка, поки вантажиться
+  final String playerName; // Ім'я, яке передається з попереднього екрану
 
   const PlayerInsightScreen({
     super.key,
@@ -32,7 +32,7 @@ class _PlayerInsightScreenState extends State<PlayerInsightScreen>
   List<dynamic> _gameLog = [];
   String? _errorMessage;
 
-  // Кольори (з профілю команди)
+  // Стилі (як на інших екранах)
   final Color _headerColor = const Color(0xFF8ACEF2);
   final Color _bgColor = const Color(0xFFE8F4F8);
   final Color _textColor = const Color(0xFF0F265C);
@@ -58,31 +58,34 @@ class _PlayerInsightScreenState extends State<PlayerInsightScreen>
     });
 
     try {
-      // 1. Отримуємо landing data (основна інфо + статистика сезону)
       final landing = await _apiService.getPlayerLanding(widget.playerId);
-
-      // 2. Отримуємо повний лог ігор (для Game Log tab)
       final logData = await _apiService.getPlayerGameLog(widget.playerId);
 
-      setState(() {
-        _playerData = landing;
-        _gameLog = logData['gameLog'] as List? ?? [];
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _playerData = landing;
+          _gameLog = logData['gameLog'] as List? ?? [];
+          _isLoading = false;
+        });
+      }
     } catch (e) {
       print('Error loading player data: $e');
-      setState(() {
-        _errorMessage = 'Failed to load player data';
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Failed to load player data';
+          _isLoading = false;
+        });
+      }
     }
   }
 
   Future<void> _checkFavorite() async {
     final isFav = await _favoritesService.isFavoritePlayer(widget.playerId);
-    setState(() {
-      _isFavorite = isFav;
-    });
+    if (mounted) {
+      setState(() {
+        _isFavorite = isFav;
+      });
+    }
   }
 
   Future<void> _toggleFavorite() async {
@@ -96,50 +99,6 @@ class _PlayerInsightScreenState extends State<PlayerInsightScreen>
         ),
       );
     }
-  }
-
-  void _showCompareSheet() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return Container(
-          padding: const EdgeInsets.all(24),
-          height: 250,
-          child: Column(
-            children: [
-              Text(
-                'Compare Players',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: _textColor,
-                  fontFamily: 'Lato',
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Search for a second player to compare stats side-by-side.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontFamily: 'Lato'),
-              ),
-              const Spacer(),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(context),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _textColor,
-                  minimumSize: const Size(double.infinity, 50),
-                ),
-                child: const Text('Find Player'),
-              ),
-            ],
-          ),
-        );
-      },
-    );
   }
 
   @override
@@ -167,36 +126,51 @@ class _PlayerInsightScreenState extends State<PlayerInsightScreen>
   // === HEADER ===
 
   Widget _buildHeader() {
-    if (_isLoading && _playerData == null) {
-      return Container(
-        height: 200,
-        color: _headerColor,
-        child: const Center(child: SizedBox()),
-      );
+    // Логіка визначення імені:
+    // 1. Починаємо з того, що передали в конструктор (widget.playerName)
+    // 2. Якщо завантажились деталі, пробуємо взяти ім'я звідти
+    String displayName = widget.playerName;
+    String? headshotUrl;
+    String jersey = '#';
+    String position = '';
+    String shoots = '';
+    String teamAbbrev = '';
+    String age = '';
+
+    if (_playerData != null) {
+      final hero = _playerData!['hero'];
+      if (hero != null) {
+        final fName = hero['firstName']?['default']?.toString() ?? '';
+        final lName = hero['lastName']?['default']?.toString() ?? '';
+
+        if (fName.isNotEmpty || lName.isNotEmpty) {
+          // Якщо є дані з API, формуємо повне ім'я без зайвих пробілів
+          displayName = '$fName $lName'.trim();
+        }
+
+        jersey = hero['sweaterNumber']?.toString() ?? '#';
+        headshotUrl = hero['headshot'];
+      }
+
+      position = _playerData!['position']?.toString() ?? '';
+      shoots = _playerData!['shootsCatches']?.toString() ?? '';
+      teamAbbrev = _playerData!['currentTeamAbbrev']?.toString() ?? '';
+
+      if (_playerData!['birthDate'] != null) {
+        try {
+          final dob = DateTime.parse(_playerData!['birthDate']);
+          final now = DateTime.now();
+          final years = (now.difference(dob).inDays / 365.25).floor();
+          age = '$years y.o.';
+        } catch (_) {}
+      }
     }
 
-    final hero = _playerData?['hero']; // Headshot, name
-    final firstName = hero?['firstName']?['default'] ?? '';
-    final lastName = hero?['lastName']?['default'] ?? widget.playerName;
-    final jersey = hero?['sweaterNumber']?.toString() ?? '#';
-    final headshotUrl = hero?['headshot'];
-    final position = _playerData?['position'] ?? 'N/A'; // 'C', 'LW'
-    final shoots = _playerData?['shootsCatches'] ?? 'N/A';
-    final teamAbbrev = _playerData?['currentTeamAbbrev'] ?? '';
-
-    // Розрахунок віку
-    String age = 'N/A';
-    if (_playerData?['birthDate'] != null) {
-      try {
-        final dob = DateTime.parse(_playerData!['birthDate']);
-        final now = DateTime.now();
-        final years = (now.difference(dob).inDays / 365.25).floor();
-        age = '$years y.o.';
-      } catch (_) {}
-    }
+    // Рядок метаданих (Position • Team • Age)
+    final metaParts = [position, shoots, teamAbbrev, age].where((s) => s.isNotEmpty).join(' • ');
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16), // Більше відступу знизу
       color: _headerColor,
       child: Column(
         children: [
@@ -242,13 +216,15 @@ class _PlayerInsightScreenState extends State<PlayerInsightScreen>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '$firstName $lastName',
+                      displayName,
                       style: TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.bold,
                         color: _textColor,
                         fontFamily: 'Lato',
                       ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
                     Text(
                       '#$jersey',
@@ -261,7 +237,7 @@ class _PlayerInsightScreenState extends State<PlayerInsightScreen>
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '$position • $shoots • $teamAbbrev • $age',
+                      metaParts,
                       style: TextStyle(
                         fontSize: 14,
                         color: _textColor.withOpacity(0.7),
@@ -274,29 +250,17 @@ class _PlayerInsightScreenState extends State<PlayerInsightScreen>
             ],
           ),
 
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
 
-          // Button Row
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              _buildActionButton(
-                icon: _isFavorite ? Icons.star : Icons.star_outline,
-                label: 'Favorites',
-                isActive: _isFavorite,
-                onTap: _toggleFavorite,
-              ),
-              _buildActionButton(
-                icon: Icons.compare_arrows,
-                label: 'Compare',
-                onTap: _showCompareSheet,
-              ),
-              _buildActionButton(
-                icon: Icons.history,
-                label: 'Recent',
-                onTap: () => _tabController.animateTo(2),
-              ),
-            ],
+          // Button Row (Тільки Favorites)
+          Center(
+            child: _buildActionButton(
+              icon: _isFavorite ? Icons.star : Icons.star_outline,
+              label: _isFavorite ? 'In Favorites' : 'Add to Favorites',
+              isActive: _isFavorite,
+              onTap: _toggleFavorite,
+              isWide: true, // Робимо кнопку трохи ширшою
+            ),
           ),
         ],
       ),
@@ -308,29 +272,32 @@ class _PlayerInsightScreenState extends State<PlayerInsightScreen>
     required String label,
     required VoidCallback onTap,
     bool isActive = false,
+    bool isWide = false,
   }) {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(8),
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+        padding: EdgeInsets.symmetric(vertical: 10, horizontal: isWide ? 32 : 16),
         decoration: BoxDecoration(
-          color: isActive ? _textColor : Colors.white.withOpacity(0.3),
+          color: isActive ? _textColor : Colors.white.withOpacity(0.5),
           borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: _textColor.withOpacity(0.2)),
         ),
-        child: Column(
+        child: Row( // Row для центрування іконки і тексту
+          mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
               icon,
               size: 20,
               color: isActive ? Colors.white : _textColor,
             ),
-            const SizedBox(height: 4),
+            const SizedBox(width: 8),
             Text(
               label,
               style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
                 color: isActive ? Colors.white : _textColor,
                 fontFamily: 'Lato',
               ),
@@ -407,7 +374,6 @@ class _PlayerInsightScreenState extends State<PlayerInsightScreen>
               _buildStatCard('+/-', stats['plusMinus'], showPlus: true),
               _buildStatCard('PIM', stats['pim']),
               _buildStatCard('SOG', stats['shots']),
-              // Приблизний TOI/GP (якщо немає в featured, беремо з останньої гри)
               _buildStatCard('TOI', '~${(stats['toi'] ?? 0) ~/ (stats['gamesPlayed'] ?? 1)}:00'),
             ],
           ),
@@ -415,7 +381,6 @@ class _PlayerInsightScreenState extends State<PlayerInsightScreen>
           const SizedBox(height: 24),
 
           // Micro Charts (Last 10 Games Sparklines)
-          // Беремо дані з gameLog (перші 10 елементів)
           if (!isGoalie) ...[
             _buildSparklineSection('Points Trend (Last 10)', 'points'),
             const SizedBox(height: 16),
@@ -436,30 +401,6 @@ class _PlayerInsightScreenState extends State<PlayerInsightScreen>
             spacing: 8,
             runSpacing: 8,
             children: _calculateRoles(stats, isGoalie),
-          ),
-
-          const SizedBox(height: 24),
-
-          // Notes
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.amber.shade50,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.amber.shade200),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
-                Text(
-                  '💡 Insights',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                ),
-                SizedBox(height: 8),
-                Text('• Consistent performance in recent home games.'),
-                Text('• High shot volume on power play.'),
-              ],
-            ),
           ),
         ],
       ),
@@ -507,7 +448,6 @@ class _PlayerInsightScreenState extends State<PlayerInsightScreen>
   }
 
   Widget _buildSparklineSection(String title, String key) {
-    // Підготовка даних для графіка (останні 10 ігор)
     List<double> data = [];
     int count = 0;
     for (var game in _gameLog) {
@@ -515,7 +455,6 @@ class _PlayerInsightScreenState extends State<PlayerInsightScreen>
       data.add((game[key] ?? 0).toDouble());
       count++;
     }
-    // Графік має йти зліва направо (від старої до нової), тому реверс
     data = data.reversed.toList();
 
     if (data.isEmpty) return const SizedBox();
@@ -545,15 +484,11 @@ class _PlayerInsightScreenState extends State<PlayerInsightScreen>
 
   List<Widget> _calculateRoles(Map<String, dynamic> stats, bool isGoalie) {
     List<String> roles = [];
-
     if (!isGoalie) {
-      // Примітивна логіка ролей
-      final toi = stats['avgToi'] ?? '00:00'; // Формат може бути різним
       final ppGoals = stats['powerPlayGoals'] ?? 0;
       final shGoals = stats['shorthandedGoals'] ?? 0;
       final faceoff = stats['faceoffWinningPctg'] ?? 0.0;
 
-      // TODO: Покращити парсинг часу, тут спрощено
       roles.add('Regular Shift');
       if (ppGoals > 2) roles.add('PP Unit');
       if (shGoals > 0) roles.add('PK Usage');
@@ -574,7 +509,6 @@ class _PlayerInsightScreenState extends State<PlayerInsightScreen>
   Widget _buildSplitsTab() {
     return Column(
       children: [
-        // Filters Row
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.all(16),
@@ -589,7 +523,6 @@ class _PlayerInsightScreenState extends State<PlayerInsightScreen>
           ),
         ),
 
-        // Table
         Expanded(
           child: SingleChildScrollView(
             child: Container(
@@ -616,7 +549,6 @@ class _PlayerInsightScreenState extends State<PlayerInsightScreen>
   }
 
   Widget _buildSplitsTable() {
-    // Dummy splits data based on last 5 games for demo
     if (_gameLog.isEmpty) return const Padding(padding: EdgeInsets.all(16), child: Text('No data'));
 
     final recentGames = _gameLog.take(5).toList();
@@ -625,14 +557,13 @@ class _PlayerInsightScreenState extends State<PlayerInsightScreen>
       defaultVerticalAlignment: TableCellVerticalAlignment.middle,
       border: TableBorder(horizontalInside: BorderSide(color: Colors.grey.shade100)),
       columnWidths: const {
-        0: FlexColumnWidth(2), // Date/Opp
-        1: FlexColumnWidth(1), // G
-        2: FlexColumnWidth(1), // A
-        3: FlexColumnWidth(1), // P
-        4: FlexColumnWidth(1), // SOG
+        0: FlexColumnWidth(2),
+        1: FlexColumnWidth(1),
+        2: FlexColumnWidth(1),
+        3: FlexColumnWidth(1),
+        4: FlexColumnWidth(1),
       },
       children: [
-        // Header
         const TableRow(
           decoration: BoxDecoration(color: Color(0xFFF5F5F5)),
           children: [
@@ -643,7 +574,6 @@ class _PlayerInsightScreenState extends State<PlayerInsightScreen>
             Text('S', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold)),
           ],
         ),
-        // Rows
         ...recentGames.map((game) {
           return TableRow(
             children: [
@@ -666,7 +596,6 @@ class _PlayerInsightScreenState extends State<PlayerInsightScreen>
   }
 
   Widget _buildSparkBarCell(int value, {bool isBold = false}) {
-    // Простий текстовий вивід для таблиці, можна замінити на Row з Container для "Sparkbar"
     return Text(
       value.toString(),
       textAlign: TextAlign.center,
@@ -680,7 +609,6 @@ class _PlayerInsightScreenState extends State<PlayerInsightScreen>
   // === TAB 3: GAME LOG ===
 
   Widget _buildGameLogTab() {
-    // Беремо останні 10 ігор
     final last10 = _gameLog.take(10).toList();
 
     if (last10.isEmpty) {
@@ -708,7 +636,6 @@ class _PlayerInsightScreenState extends State<PlayerInsightScreen>
     final toi = game['toi'] ?? '00:00';
     final gameId = game['gameId'];
 
-    // Formatted date
     String dateStr = date;
     try {
       final dt = DateTime.parse(date);
@@ -727,7 +654,6 @@ class _PlayerInsightScreenState extends State<PlayerInsightScreen>
           padding: const EdgeInsets.all(12),
           child: Row(
             children: [
-              // Date & Opponent
               SizedBox(
                 width: 80,
                 child: Column(
@@ -742,8 +668,6 @@ class _PlayerInsightScreenState extends State<PlayerInsightScreen>
                   ],
                 ),
               ),
-
-              // Stats
               Expanded(
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -754,7 +678,6 @@ class _PlayerInsightScreenState extends State<PlayerInsightScreen>
                   ],
                 ),
               ),
-
               const Icon(Icons.chevron_right, color: Colors.grey, size: 18),
             ],
           ),
@@ -775,10 +698,11 @@ class _PlayerInsightScreenState extends State<PlayerInsightScreen>
   void _openGameHub(int? gameId, String dateStr) async {
     if (gameId == null) return;
 
-    // Створюємо тимчасовий об'єкт для навігації
-    // У реальному додатку краще завантажити деталі гри через _apiService.getGameById
     try {
-      final game = await _apiService.getGameBySchedule(gameId, dateStr);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Loading game...'), duration: Duration(seconds: 1)),
+      );
+      final game = await _apiService.getGameById(gameId);
       if (!mounted) return;
 
       Navigator.push(
@@ -786,14 +710,17 @@ class _PlayerInsightScreenState extends State<PlayerInsightScreen>
         MaterialPageRoute(builder: (_) => GameHubScreen(game: game)),
       );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not load game details')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not load game details')),
+        );
+      }
     }
   }
 }
 
-// === Custom Painter for Sparklines ===
+// === Custom Painter ===
 class SimpleSparklinePainter extends CustomPainter {
   final List<double> data;
   final Color color;
@@ -822,7 +749,7 @@ class SimpleSparklinePainter extends CustomPainter {
     for (int i = 0; i < data.length; i++) {
       final x = i * stepX;
       final normalizedY = (data[i] - minVal) / range;
-      final y = height - (normalizedY * height); // Invert Y because canvas origin is top-left
+      final y = height - (normalizedY * height);
 
       if (i == 0) {
         path.moveTo(x, y);
@@ -833,7 +760,6 @@ class SimpleSparklinePainter extends CustomPainter {
 
     canvas.drawPath(path, paint);
 
-    // Draw dots
     final dotPaint = Paint()..color = color;
     for (int i = 0; i < data.length; i++) {
       final x = i * stepX;

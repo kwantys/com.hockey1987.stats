@@ -31,13 +31,13 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
 
   // Styles
   final Color _textColor = const Color(0xFF0F265C);
-  final Color _headerColor = const Color(0xFF8ACEF2); // Новий колір шапки
-  final Color _detailsButtonColor = const Color(0xFF8ACEF2); // Колір кнопки Details
+  final Color _headerColor = const Color(0xFF8ACEF2);
+  final Color _detailsButtonColor = const Color(0xFF8ACEF2);
 
   late final TextStyle _appBarTitleStyle = TextStyle(
       fontFamily: 'Lato',
       fontWeight: FontWeight.bold,
-      color: _textColor // Колір тексту шапки
+      color: _textColor
   );
 
   @override
@@ -56,18 +56,12 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
   }
 
   void _onFavoritesUpdated() {
-    print('Favorites updated elsewhere, reloading My Rink...');
-    _loadFavorites();
+    _loadFavorites(showLoading: false);
   }
 
-  // Додаємо параметр showLoading, щоб керувати спіннером
   Future<void> _loadFavorites({bool showLoading = false}) async {
     if (!mounted) return;
-
-    // Показуємо спіннер тільки якщо попросили (при першому старті)
-    if (showLoading) {
-      setState(() => _isLoading = true);
-    }
+    if (showLoading) setState(() => _isLoading = true);
 
     try {
       final favTeamsIds = await _favoritesService.getFavoriteTeams();
@@ -75,33 +69,27 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
       final favPlayersIds = await _favoritesService.getFavoritePlayers();
       final alerts = await _favoritesService.getGamesWithAlerts();
 
-      // --- 1. ЗАВАНТАЖЕННЯ КОМАНД ---
+      // --- TEAMS ---
       final teams = <Team>[];
       for (var id in favTeamsIds) {
-        // Пропускаємо некоректні ID
         if (id == 0) continue;
-
         try {
           final data = await _apiService.getTeamInfo(id);
-
-          // !!! ВИПРАВЛЕННЯ: Якщо API не дав логотип, формуємо його самі
+          // Fallback logo
           if (data['teamLogo'] == null) {
             final abbrevData = data['teamAbbrev'];
-            // Абревіатура може бути рядком "CAR" або мапою {"default": "CAR"}
             final abbrev = abbrevData is Map ? abbrevData['default'] : abbrevData;
-
             if (abbrev != null) {
               data['teamLogo'] = 'https://assets.nhle.com/logos/nhl/svg/${abbrev}_light.svg';
             }
           }
-
           teams.add(Team.fromJson(data));
         } catch (e) {
           print('Error loading team $id: $e');
         }
       }
 
-      // --- 2. ЗАВАНТАЖЕННЯ ІГОР ---
+      // --- GAMES ---
       final games = <Game>[];
       for (var id in favGamesIds) {
         try {
@@ -113,7 +101,7 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
       }
       games.sort((a, b) => b.dateTime.compareTo(a.dateTime));
 
-      // --- 3. ЗАВАНТАЖЕННЯ ГРАВЦІВ ---
+      // --- PLAYERS ---
       final players = <Map<String, dynamic>>[];
       for (var id in favPlayersIds) {
         try {
@@ -154,12 +142,9 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
     await _favoritesService.toggleFavoritePlayer(playerId);
   }
 
-  // ВИПРАВЛЕНО: Більше не перезавантажує весь екран
   Future<void> _toggleGameAlert(int gameId) async {
     await _favoritesService.toggleAlertsForGame(gameId);
     final currentAlerts = await _favoritesService.getGamesWithAlerts();
-
-    // Оновлюємо тільки локальний список алертів
     if (mounted) {
       setState(() {
         _gamesWithAlerts = currentAlerts;
@@ -167,6 +152,42 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
     }
   }
 
+  // --- HELPER: NAME EXTRACTION ---
+  String _getPlayerName(Map<String, dynamic> data) {
+    // Допоміжна функція, яка витягує текст з Map або String
+    String extract(dynamic val) {
+      if (val == null) return '';
+      if (val is Map) return val['default']?.toString() ?? '';
+      return val.toString();
+    }
+
+    try {
+      // 1. Шукаємо в об'єкті 'hero' (найчастіше тут в Landing API)
+      if (data.containsKey('hero')) {
+        final hero = data['hero'];
+        final f = extract(hero['firstName']);
+        final l = extract(hero['lastName']);
+        if (f.isNotEmpty || l.isNotEmpty) {
+          return '$f $l'.trim();
+        }
+      }
+
+      // 2. Шукаємо на верхньому рівні (іноді буває тут)
+      final fTop = extract(data['firstName']);
+      final lTop = extract(data['lastName']);
+      if (fTop.isNotEmpty || lTop.isNotEmpty) {
+        return '$fTop $lTop'.trim();
+      }
+
+      // 3. Якщо є поле commonName
+      final common = extract(data['commonName']);
+      if (common.isNotEmpty) return common;
+
+      return 'Player';
+    } catch (e) {
+      return 'Player';
+    }
+  }
   // --- UI BUILDERS ---
 
   @override
@@ -175,7 +196,7 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
       backgroundColor: const Color(0xFFE8F4F8),
       appBar: AppBar(
         title: Text('My Rink', style: _appBarTitleStyle),
-        backgroundColor: _headerColor, // Новий колір
+        backgroundColor: _headerColor,
         elevation: 0,
         centerTitle: true,
       ),
@@ -251,12 +272,11 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Expanded(
-                    // ВИПРАВЛЕНО: Обробка помилок завантаження логотипу
                     child: team.teamLogo != null
                         ? Image.network(
                       team.teamLogo!,
                       fit: BoxFit.contain,
-                      errorBuilder: (context, error, stackTrace) => const Icon(Icons.shield, size: 50, color: Colors.grey),
+                      errorBuilder: (_, __, ___) => const Icon(Icons.shield, size: 50, color: Colors.grey),
                     )
                         : const Icon(Icons.shield, size: 50, color: Colors.grey),
                   ),
@@ -302,7 +322,6 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
       itemCount: _favoriteGames.length,
       itemBuilder: (context, index) {
         final game = _favoriteGames[index];
-        // Важливо: перевіряємо стан алерта тут, а не з FavoritesService напряму
         final alertsEnabled = _gamesWithAlerts.contains(game.gameId);
 
         return Card(
@@ -355,7 +374,6 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
                       children: [
                         Switch(
                           value: alertsEnabled,
-                          // ВИПРАВЛЕНО: Виклик _toggleGameAlert без повного перезавантаження
                           onChanged: (val) => _toggleGameAlert(game.gameId),
                           activeColor: _textColor,
                         ),
@@ -365,7 +383,7 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
                     ElevatedButton(
                       onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => GameHubScreen(game: game))),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: _detailsButtonColor, // Новий колір кнопки Details
+                        backgroundColor: _detailsButtonColor,
                         minimumSize: const Size(100, 36),
                       ),
                       child: const Text('Details'),
@@ -383,13 +401,12 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
   Widget _buildTeamRow(String name, String? logo, int? score) {
     return Column(
       children: [
-        // ВИПРАВЛЕНО: Обробка помилок завантаження логотипу
         if (logo != null)
           Image.network(
             logo,
             width: 40,
             height: 40,
-            errorBuilder: (context, error, stackTrace) => const Icon(Icons.sports_hockey, size: 40, color: Colors.grey),
+            errorBuilder: (_, __, ___) => const Icon(Icons.sports_hockey, size: 40, color: Colors.grey),
           )
         else
           const Icon(Icons.sports_hockey, size: 40, color: Colors.grey),
@@ -413,17 +430,16 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
       itemCount: _favoritePlayersData.length,
       itemBuilder: (context, index) {
         final data = _favoritePlayersData[index];
-        final hero = data['hero'];
-        final stats = data['featuredStats']?['regularSeason']?['subSeason'];
-
         final id = data['id'] as int;
-        final firstName = hero?['firstName']?['default'] ?? '';
-        final lastName = hero?['lastName']?['default'] ?? '';
-        final name = '$firstName $lastName';
+
+        // Використовуємо наш новий надійний метод
+        final name = _getPlayerName(data);
+
+        final hero = data['hero'];
         final headshot = hero?['headshot'];
         final team = data['currentTeamAbbrev'] ?? 'UNK';
         final position = data['position'] ?? '-';
-
+        final stats = data['featuredStats']?['regularSeason']?['subSeason'];
         final gp = stats?['gamesPlayed'] ?? 0;
         final points = stats?['points'] ?? 0;
 
