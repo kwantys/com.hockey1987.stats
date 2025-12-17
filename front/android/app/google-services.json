@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "959128405552",
+    "project_id": "project-8037632595376264578",
+    "storage_bucket": "project-8037632595376264578.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:959128405552:android:5b35d1020ab936ce234ff5",
+        "android_client_info": {
+          "package_name": "com.hockey1987.stats"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD9BH6ifaq9NWNC2XLbC2ORd2de3aJWPY4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

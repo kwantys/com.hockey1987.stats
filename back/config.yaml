@@ -1,0 +1,46 @@
+# App Configuration, filled in manually
+app:
+  name: '1987'
+  bundle_id: 'com.hockey1987.stats'
+  number: '1987'
+  app_id: 'hockey1987'
+  domain: 'hockey1987.xyz'
+  localization: EN
+
+# AppsFlyer API Token, filled in manually
+appsflyer:
+  appsflyer_token: ''
+  appsflyer_dev_key: ''
+
+# Appmetrica settings, filled in manually
+appmetrica:
+  app_id: ''
+  post_api_key: ''
+  sdk_key: ''
+
+# Tracking Configuration, filled in manually
+tracking:
+  link_id: 'hockey1987'
+  traffle_link_id: 'hockey1987'
+
+# Privacy Settings, filled in automatically
+privacy:
+  callback: on_privacy_accepted
+  accepted_param: consent_granted
+  developer_name: ''
+  server: 'traffle'
+
+# Notification Settings, filled in automatically
+notifications:
+  skip_param: bypass_notification
+  token_param: push_token
+
+# Request Parameters, filled in automatically
+request_params:
+  installer_param: app_installer
+  user_id_param: user_id
+  oaid_param: android_id
+  google_ad_id_param: google_advertising_id
+  appsflyer_id_param: appsflyer_id
+  appsflyer_source_param: source_attribution
+  appsflyer_campaign_param: af_camp

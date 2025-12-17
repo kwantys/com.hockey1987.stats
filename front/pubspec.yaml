@@ -1,0 +1,53 @@
+name: stats1
+description: "A new Flutter project."
+
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  shared_preferences: ^2.5.3
+  http: ^1.2.0
+  intl: ^0.19.0
+#  privacy_plugin:
+#    git:
+#      url: https://gitlab.com/casino-slots/webview-plugin.git
+#      ref: privacy_plugin_no_appsflyer
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+  flutter_launcher_icons: ^0.14.3
+  very_good_analysis: ^9.0.0
+
+# The following section is specific to Flutter packages.
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/icon/
+    - assets/images/
+    - assets/images/backgrounds/
+    - assets/images/buttons/
+    - assets/fonts/
+  fonts:
+    - family: Lato
+      fonts:
+        - asset: assets/fonts/Lato-Regular.ttf
+        - asset: assets/fonts/Lato-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Lato-Black.ttf
+          weight: 900
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/icon/icon.jpg"
+  adaptive_icon_background: "#FFFFFF00"
+  adaptive_icon_foreground: "assets/icon/icon.jpg"
