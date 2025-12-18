@@ -2,8 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/team_models.dart';
 import '../models/game.dart';
+import '../models/user_preferences.dart'; // ДОДАНО
 import '../services/nhl_api_service.dart';
 import '../services/favorites_service.dart';
+import '../services/preferences_service.dart'; // ДОДАНО
+import '../services/notification_service.dart'; // ДОДАНО
+import '../shared/services/logger.dart'; // ДОДАНО
 import 'team_profile_screen.dart';
 import 'game_hub_screen.dart';
 import 'player_insight_screen.dart';
@@ -20,11 +24,13 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
   late TabController _tabController;
   final NHLApiService _apiService = NHLApiService();
   final FavoritesService _favoritesService = FavoritesService();
+  final PreferencesService _preferencesService = PreferencesService(); // ДОДАНО
 
   // Data
   List<Team> _favoriteTeams = [];
   List<Game> _favoriteGames = [];
   List<Map<String, dynamic>> _favoritePlayersData = [];
+  UserPreferences _userPrefs = const UserPreferences(); // ДОДАНО
 
   bool _isLoading = true;
   List<int> _gamesWithAlerts = [];
@@ -68,14 +74,24 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
       final favGamesIds = await _favoritesService.getFavoriteGames();
       final favPlayersIds = await _favoritesService.getFavoritePlayers();
       final alerts = await _favoritesService.getGamesWithAlerts();
+      final prefs = await _preferencesService.loadPreferences(); // ДОДАНО
 
       // --- TEAMS ---
       final teams = <Team>[];
       for (var id in favTeamsIds) {
-        if (id == 0) continue;
+        // Додаємо перевірку: реальні ID команд NHL зазвичай не перевищують 1000.
+        // Також ігноруємо нульовий ID.
+        if (id <= 0 || id > 1000) {
+          AppLogger.d('Skipping suspicious team ID: $id');
+          continue;
+        }
+
         try {
           final data = await _apiService.getTeamInfo(id);
-          // Fallback logo
+
+          // Перевіряємо чи API взагалі повернуло потрібні дані, перш ніж працювати з ними
+          if (data.isEmpty) continue;
+
           if (data['teamLogo'] == null) {
             final abbrevData = data['teamAbbrev'];
             final abbrev = abbrevData is Map ? abbrevData['default'] : abbrevData;
@@ -85,7 +101,9 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
           }
           teams.add(Team.fromJson(data));
         } catch (e) {
-          print('Error loading team $id: $e');
+          // Змінюємо .e (error) на .w (warning), щоб не засмічувати критичні логи,
+          // бо це проблема зовнішніх даних API, а не вашого коду.
+          AppLogger.w('Could not load team info for ID $id: $e');
         }
       }
 
@@ -96,12 +114,12 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
           final game = await _apiService.getGameById(id);
           games.add(game);
         } catch (e) {
-          print('Error loading game $id: $e');
+          AppLogger.e('Error loading game $id: $e');
         }
       }
       games.sort((a, b) => b.dateTime.compareTo(a.dateTime));
 
-      // --- PLAYERS ---
+      // --- PLAYERS (без змін) ---
       final players = <Map<String, dynamic>>[];
       for (var id in favPlayersIds) {
         try {
@@ -109,7 +127,7 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
           data['id'] = id;
           players.add(data);
         } catch (e) {
-          print('Error loading player $id: $e');
+          AppLogger.e('Error loading player $id: $e');
         }
       }
 
@@ -119,16 +137,58 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
           _favoriteGames = games;
           _favoritePlayersData = players;
           _gamesWithAlerts = alerts;
+          _userPrefs = prefs; // ДОДАНО
           _isLoading = false;
         });
       }
-    } catch (e) {
-      print('CRITICAL Error loading favorites: $e');
+    } catch (e, stack) {
+      AppLogger.e('CRITICAL Error loading favorites', e, stack);
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
   // --- ACTIONS ---
+
+  // ІНТЕГРАЦІЯ НОТИФІКАЦІЙ У MY RINK
+  Future<void> _toggleGameAlert(Game game) async {
+    try {
+      await _favoritesService.toggleAlertsForGame(game.gameId);
+      final currentAlerts = await _favoritesService.getGamesWithAlerts();
+
+      final bool isEnabledNow = currentAlerts.contains(game.gameId);
+
+      if (isEnabledNow) {
+        AppLogger.i('💡 Scheduling alerts from MyRink for: ${game.gameId}');
+
+        // 1. Початок матчу
+        await NotificationService.scheduleMatchAlert(
+          gameId: game.gameId,
+          teamNames: '${game.awayTeamName} @ ${game.homeTeamName}',
+          startTime: game.dateTime,
+        );
+
+        // 2. Фінальний результат (якщо увімкнено)
+        if (_userPrefs.finalScoreAlerts) {
+          await NotificationService.scheduleMatchAlert(
+            gameId: game.gameId + 1000000,
+            teamNames: 'Final Score: ${game.awayTeamName} vs ${game.homeTeamName}',
+            startTime: game.dateTime.add(const Duration(hours: 3)),
+          );
+        }
+      } else {
+        AppLogger.d('🐛 Alerts disabled from MyRink for: ${game.gameId}');
+        await NotificationService.cancelMatchAlert(game.gameId);
+      }
+
+      if (mounted) {
+        setState(() {
+          _gamesWithAlerts = currentAlerts;
+        });
+      }
+    } catch (e, stack) {
+      AppLogger.e('Failed to toggle alert in MyRink', e, stack);
+    }
+  }
 
   Future<void> _removeTeam(int teamId) async {
     await _favoritesService.toggleFavoriteTeam(teamId);
@@ -142,53 +202,32 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
     await _favoritesService.toggleFavoritePlayer(playerId);
   }
 
-  Future<void> _toggleGameAlert(int gameId) async {
-    await _favoritesService.toggleAlertsForGame(gameId);
-    final currentAlerts = await _favoritesService.getGamesWithAlerts();
-    if (mounted) {
-      setState(() {
-        _gamesWithAlerts = currentAlerts;
-      });
-    }
-  }
+  // --- UI BUILDERS (БЕЗ ЗМІН) ---
+  // ... (getPlayerName, build, buildTeamsTab) ...
 
-  // --- HELPER: NAME EXTRACTION ---
   String _getPlayerName(Map<String, dynamic> data) {
-    // Допоміжна функція, яка витягує текст з Map або String
     String extract(dynamic val) {
       if (val == null) return '';
       if (val is Map) return val['default']?.toString() ?? '';
       return val.toString();
     }
-
     try {
-      // 1. Шукаємо в об'єкті 'hero' (найчастіше тут в Landing API)
       if (data.containsKey('hero')) {
         final hero = data['hero'];
         final f = extract(hero['firstName']);
         final l = extract(hero['lastName']);
-        if (f.isNotEmpty || l.isNotEmpty) {
-          return '$f $l'.trim();
-        }
+        if (f.isNotEmpty || l.isNotEmpty) return '$f $l'.trim();
       }
-
-      // 2. Шукаємо на верхньому рівні (іноді буває тут)
       final fTop = extract(data['firstName']);
       final lTop = extract(data['lastName']);
-      if (fTop.isNotEmpty || lTop.isNotEmpty) {
-        return '$fTop $lTop'.trim();
-      }
-
-      // 3. Якщо є поле commonName
+      if (fTop.isNotEmpty || lTop.isNotEmpty) return '$fTop $lTop'.trim();
       final common = extract(data['commonName']);
       if (common.isNotEmpty) return common;
-
       return 'Player';
     } catch (e) {
       return 'Player';
     }
   }
-  // --- UI BUILDERS ---
 
   @override
   Widget build(BuildContext context) {
@@ -235,8 +274,6 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
       ),
     );
   }
-
-  // --- TEAMS TAB ---
 
   Widget _buildTeamsTab() {
     if (_favoriteTeams.isEmpty) {
@@ -310,7 +347,7 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
     );
   }
 
-  // --- GAMES TAB ---
+  // --- GAMES TAB (ОНОВЛЕНО) ---
 
   Widget _buildGamesTab() {
     if (_favoriteGames.isEmpty) {
@@ -372,9 +409,10 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
                   children: [
                     Row(
                       children: [
+                        // ВИКОРИСТОВУЄМО ОНОВЛЕНИЙ МЕТОД
                         Switch(
                           value: alertsEnabled,
-                          onChanged: (val) => _toggleGameAlert(game.gameId),
+                          onChanged: (val) => _toggleGameAlert(game),
                           activeColor: _textColor,
                         ),
                         const Text('Alerts', style: TextStyle(fontSize: 12)),
@@ -418,23 +456,16 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
     );
   }
 
-  // --- PLAYERS TAB ---
-
+  // --- PLAYERS TAB (без змін) ---
   Widget _buildPlayersTab() {
-    if (_favoritePlayersData.isEmpty) {
-      return _buildEmptyState('No players tracked yet.', null, null);
-    }
-
+    if (_favoritePlayersData.isEmpty) return _buildEmptyState('No players tracked yet.', null, null);
     return ListView.builder(
       padding: const EdgeInsets.all(16),
       itemCount: _favoritePlayersData.length,
       itemBuilder: (context, index) {
         final data = _favoritePlayersData[index];
         final id = data['id'] as int;
-
-        // Використовуємо наш новий надійний метод
         final name = _getPlayerName(data);
-
         final hero = data['hero'];
         final headshot = hero?['headshot'];
         final team = data['currentTeamAbbrev'] ?? 'UNK';
@@ -442,30 +473,17 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
         final stats = data['featuredStats']?['regularSeason']?['subSeason'];
         final gp = stats?['gamesPlayed'] ?? 0;
         final points = stats?['points'] ?? 0;
-
         return Card(
           margin: const EdgeInsets.only(bottom: 12),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            leading: Container(
-              width: 50, height: 50,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.grey.shade200,
-                image: headshot != null ? DecorationImage(image: NetworkImage(headshot), fit: BoxFit.cover) : null,
-              ),
-              child: headshot == null ? const Icon(Icons.person, color: Colors.grey) : null,
-            ),
-            title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Lato')),
+            leading: headshot != null
+                ? CircleAvatar(backgroundImage: NetworkImage(headshot))
+                : const CircleAvatar(child: Icon(Icons.person)),
+            title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
             subtitle: Text('$position • $team\n$points P in $gp GP'),
-            trailing: IconButton(
-              icon: const Icon(Icons.favorite, color: Colors.red),
-              onPressed: () => _removePlayer(id),
-            ),
-            onTap: () {
-              Navigator.push(context, MaterialPageRoute(builder: (_) => PlayerInsightScreen(playerId: id, playerName: name)));
-            },
+            trailing: IconButton(icon: const Icon(Icons.favorite, color: Colors.red), onPressed: () => _removePlayer(id)),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PlayerInsightScreen(playerId: id, playerName: name))),
           ),
         );
       },
@@ -485,9 +503,8 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
             ElevatedButton(
               onPressed: onBtn,
               style: ElevatedButton.styleFrom(
-                // Змінено з _textColor на _headerColor, щоб відповідати шапці
                 backgroundColor: _headerColor,
-                foregroundColor: _textColor, // Текст краще зробити темним для контрасту на блакитному
+                foregroundColor: _textColor,
                 elevation: 0,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),

@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/game.dart';
+import '../models/user_preferences.dart'; // ДОДАНО
 import '../services/nhl_api_service.dart';
 import '../services/favorites_service.dart';
+import '../services/preferences_service.dart'; // ДОДАНО
+import '../services/notification_service.dart'; // ДОДАНО
+import '../shared/services/logger.dart'; // ДОДАНО
 import '../widgets/game_tabs/timeline_tab.dart';
 import '../widgets/game_tabs/goals_tab.dart';
 import '../widgets/game_tabs/penalties_tab.dart';
@@ -29,19 +33,21 @@ class _GameHubScreenState extends State<GameHubScreen>
   late TabController _tabController;
   final NHLApiService _apiService = NHLApiService();
   final FavoritesService _favoritesService = FavoritesService();
+  final PreferencesService _preferencesService = PreferencesService(); // ДОДАНО
 
   Map<String, dynamic>? _gameData;
   bool _isLoading = true;
   bool _isFavorite = false;
-  bool _favoritesChanged = false; // ДОДАНО: Трекінг змін
+  bool _hasAlerts = false; // ДОДАНО: Стан сповіщень
+  UserPreferences _userPrefs = const UserPreferences(); // ДОДАНО
+  bool _favoritesChanged = false;
   String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 5, vsync: this);
-    _loadGameData();
-    _checkFavorite();
+    _loadInitialData(); // Оновлено для завантаження всього відразу
   }
 
   @override
@@ -50,9 +56,26 @@ class _GameHubScreenState extends State<GameHubScreen>
     super.dispose();
   }
 
+  // Об'єднаний метод завантаження даних
+  Future<void> _loadInitialData() async {
+    await _checkStatus(); // Перевіряємо зірки та дзвіночки
+    await _loadGameData(); // Завантажуємо API дані
+  }
+
+  Future<void> _checkStatus() async {
+    final isFav = await _favoritesService.isFavorite(widget.game.gameId);
+    final hasAlerts = await _favoritesService.hasAlerts(widget.game.gameId);
+    final prefs = await _preferencesService.loadPreferences();
+
+    setState(() {
+      _isFavorite = isFav;
+      _hasAlerts = hasAlerts;
+      _userPrefs = prefs;
+    });
+  }
+
   Future<void> _loadGameData() async {
     if (!widget.game.isLive && !widget.game.isFinal) {
-      // Гра ще не почалася
       setState(() {
         _isLoading = false;
       });
@@ -60,25 +83,11 @@ class _GameHubScreenState extends State<GameHubScreen>
     }
 
     try {
-      print('=== LOADING GAME DATA ===');
-      print('Game ID: ${widget.game.gameId}');
-
-      // Завантажити landing data
+      AppLogger.d('=== LOADING GAME DATA FOR HUB ===');
       final landingData = await _apiService.getGameDetails(widget.game.gameId);
-      print('Landing data keys: ${landingData.keys}');
-
-      // Завантажити play-by-play data
       final playByPlayData = await _apiService.getGamePlayByPlay(widget.game.gameId);
-      print('PlayByPlay data keys: ${playByPlayData.keys}');
-      print('Has plays: ${playByPlayData['plays'] != null}');
-      print('Plays count: ${(playByPlayData['plays'] as List?)?.length ?? 0}');
-
-      // Завантажити boxscore data
       final boxscoreData = await _apiService.getGameBoxscore(widget.game.gameId);
-      print('Boxscore data keys: ${boxscoreData.keys}');
-      print('Has playerByGameStats: ${boxscoreData['playerByGameStats'] != null}');
 
-      // Об'єднати дані
       final combinedData = {
         ...landingData,
         'plays': playByPlayData['plays'],
@@ -87,37 +96,79 @@ class _GameHubScreenState extends State<GameHubScreen>
         'teamGameStats': boxscoreData['teamGameStats'],
       };
 
-      setState(() {
-        _gameData = combinedData;
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _gameData = combinedData;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
-      print('Error loading game data: $e');
-      setState(() {
-        _errorMessage = 'Failed to load game details';
-        _isLoading = false;
-      });
+      AppLogger.e('Error loading game data: $e');
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Failed to load game details';
+          _isLoading = false;
+        });
+      }
     }
   }
 
-  Future<void> _checkFavorite() async {
+  Future<void> _toggleFavorite() async {
+    await _favoritesService.toggleFavoriteGame(widget.game.gameId);
     final isFav = await _favoritesService.isFavorite(widget.game.gameId);
     setState(() {
       _isFavorite = isFav;
+      _favoritesChanged = true;
     });
   }
 
-  // ВИПРАВЛЕНО: Метод тепер повідомляє про зміни
-  Future<void> _toggleFavorite() async {
-    await _favoritesService.toggleFavoriteGame(widget.game.gameId);
-    await _checkFavorite();
+  Future<void> _toggleAlerts() async {
+    try {
+      // 1. Змінюємо статус у базі
+      await _favoritesService.toggleAlertsForGame(widget.game.gameId);
+      final hasAlerts = await _favoritesService.hasAlerts(widget.game.gameId);
 
-    // Позначаємо що favorites змінились
-    _favoritesChanged = true;
+      setState(() {
+        _hasAlerts = hasAlerts;
+        _favoritesChanged = true;
+      });
+
+      if (hasAlerts) {
+        // ПЕРЕВІРКА: чи дозволені сповіщення взагалі в Settings
+        if (!_userPrefs.goalAlerts) {
+          AppLogger.w('Alerts are disabled in global settings');
+          // Можна показати SnackBar, що сповіщення вимкнені в налаштуваннях
+          return;
+        }
+
+        AppLogger.i('Enabling alerts from GameHub: ${widget.game.gameId}');
+
+        // Плануємо початок матчу
+        await NotificationService.scheduleMatchAlert(
+          gameId: widget.game.gameId,
+          teamNames: '${widget.game.awayTeamName} @ ${widget.game.homeTeamName}',
+          startTime: widget.game.dateTime,
+        );
+
+        // Плануємо фінал за умови налаштувань
+        if (_userPrefs.finalScoreAlerts) {
+          await NotificationService.scheduleMatchAlert(
+            gameId: widget.game.gameId + 1000000,
+            teamNames: 'Final Result: ${widget.game.awayTeamName} vs ${widget.game.homeTeamName}',
+            startTime: widget.game.dateTime.add(const Duration(hours: 3)),
+          );
+        }
+      } else {
+        // ЯКЩО ВИМКНУЛИ: обов'язково видаляємо заплановані завдання
+        AppLogger.d('Alerts disabled from GameHub: ${widget.game.gameId}');
+        await NotificationService.cancelMatchAlert(widget.game.gameId);
+      }
+    } catch (e, stack) {
+      AppLogger.e('Error toggling alerts in Hub', e, stack);
+    }
   }
 
   void _openPredict() {
-    // Navigate to Outcome Studio with prefilled game
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -128,7 +179,6 @@ class _GameHubScreenState extends State<GameHubScreen>
 
   @override
   Widget build(BuildContext context) {
-    // ВИПРАВЛЕНО: При поверненні назад передаємо інформацію про зміни
     return WillPopScope(
       onWillPop: () async {
         Navigator.pop(context, _favoritesChanged);
@@ -160,17 +210,13 @@ class _GameHubScreenState extends State<GameHubScreen>
       color: const Color(0xFF8ACEF2),
       child: Row(
         children: [
-          // Back button - ВИПРАВЛЕНО: Передаємо інформацію про зміни
           IconButton(
             onPressed: () => Navigator.pop(context, _favoritesChanged),
             icon: const Icon(Icons.arrow_back, color: Color(0xFF0F265C)),
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(),
           ),
-
           const Spacer(),
-
-          // Favorite button
           IconButton(
             onPressed: _toggleFavorite,
             icon: Icon(
@@ -178,13 +224,13 @@ class _GameHubScreenState extends State<GameHubScreen>
               color: const Color(0xFF0F265C),
             ),
           ),
-
-          // Alerts button
+          // ОНОВЛЕНО: Кнопка сповіщень тепер функціональна
           IconButton(
-            onPressed: () {
-              // TODO: Toggle alerts
-            },
-            icon: const Icon(Icons.notifications_outlined, color: Color(0xFF0F265C)),
+            onPressed: _toggleAlerts,
+            icon: Icon(
+              _hasAlerts ? Icons.notifications : Icons.notifications_outlined,
+              color: _hasAlerts ? const Color(0xFFFFA500) : const Color(0xFF0F265C),
+            ),
           ),
         ],
       ),
@@ -208,11 +254,9 @@ class _GameHubScreenState extends State<GameHubScreen>
       ),
       child: Column(
         children: [
-          // Teams
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              // Away team
               Expanded(
                 child: _buildTeam(
                   widget.game.awayTeamName,
@@ -220,8 +264,6 @@ class _GameHubScreenState extends State<GameHubScreen>
                   false,
                 ),
               ),
-
-              // Status pill
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
@@ -238,8 +280,6 @@ class _GameHubScreenState extends State<GameHubScreen>
                   ),
                 ),
               ),
-
-              // Home team
               Expanded(
                 child: _buildTeam(
                   widget.game.homeTeamName,
@@ -249,10 +289,7 @@ class _GameHubScreenState extends State<GameHubScreen>
               ),
             ],
           ),
-
           const SizedBox(height: 16),
-
-          // Predict button
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
@@ -275,11 +312,8 @@ class _GameHubScreenState extends State<GameHubScreen>
               ),
             ),
           ),
-
           if (widget.game.isFinal || widget.game.isLive) ...[
             const SizedBox(height: 16),
-
-            // Score
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -303,13 +337,9 @@ class _GameHubScreenState extends State<GameHubScreen>
                 ),
               ],
             ),
-
             const SizedBox(height: 12),
-
-            // Stats
             _buildQuickStats(),
           ],
-
           if (widget.game.isUpcoming)
             Padding(
               padding: const EdgeInsets.only(top: 16),
@@ -330,7 +360,6 @@ class _GameHubScreenState extends State<GameHubScreen>
   Widget _buildTeam(String name, String? logo, bool isHome) {
     return Column(
       children: [
-        // Logo placeholder
         Container(
           width: 60,
           height: 60,
@@ -344,7 +373,7 @@ class _GameHubScreenState extends State<GameHubScreen>
         ),
         const SizedBox(height: 8),
         Text(
-          name.split(' ').last, // Показуємо тільки назву команди
+          name.split(' ').last,
           style: const TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w600,
@@ -379,62 +408,35 @@ class _GameHubScreenState extends State<GameHubScreen>
     if (_gameData == null) {
       return const SizedBox.shrink();
     }
-
     try {
-      // Використовуємо наш потужний парсер, який вміє рахувати вручну
       final parser = GameDataParser(_gameData!);
       final stats = parser.getTeamStats();
-
-      // Отримуємо кидки
       final homeSog = stats['shots']?['home'] ?? 0;
       final awaySog = stats['shots']?['away'] ?? 0;
-
-      // Отримуємо Power Play (формат "1/3")
       final homePPRaw = stats['powerPlay']?['home']?.toString() ?? '0/0';
       final awayPPRaw = stats['powerPlay']?['away']?.toString() ?? '0/0';
 
-      // Допоміжна функція для форматування "1/3" -> "1/3 (33%)"
       String formatPP(String raw) {
         try {
           final parts = raw.split('/');
           if (parts.length != 2) return '$raw (0%)';
-
           final goals = int.tryParse(parts[0]) ?? 0;
           final opps = int.tryParse(parts[1]) ?? 0;
-
-          final pct = opps > 0
-              ? ((goals / opps) * 100).toStringAsFixed(0)
-              : '0';
-
+          final pct = opps > 0 ? ((goals / opps) * 100).toStringAsFixed(0) : '0';
           return '$raw ($pct%)';
         } catch (e) {
           return '0/0 (0%)';
         }
       }
 
-      final homePPDisplay = formatPP(homePPRaw);
-      final awayPPDisplay = formatPP(awayPPRaw);
-
       return Row(
         children: [
-          Expanded(
-            child: _buildStatItem('Shots on goal', '$awaySog – $homeSog'),
-          ),
-          Container(
-            width: 1,
-            height: 30,
-            color: const Color(0xFFE8F4F8),
-          ),
-          Expanded(
-            child: _buildStatItem(
-              'Power play',
-              '$awayPPDisplay – $homePPDisplay',
-            ),
-          ),
+          Expanded(child: _buildStatItem('Shots on goal', '$awaySog – $homeSog')),
+          Container(width: 1, height: 30, color: const Color(0xFFE8F4F8)),
+          Expanded(child: _buildStatItem('Power play', '${formatPP(awayPPRaw)} – ${formatPP(homePPRaw)}')),
         ],
       );
     } catch (e) {
-      print('Error building quick stats: $e');
       return const SizedBox.shrink();
     }
   }
@@ -473,16 +475,8 @@ class _GameHubScreenState extends State<GameHubScreen>
         isScrollable: true,
         labelColor: const Color(0xFF0F265C),
         unselectedLabelColor: const Color(0xFF6B9EB8),
-        labelStyle: const TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w700,
-          fontFamily: 'Lato',
-        ),
-        unselectedLabelStyle: const TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w500,
-          fontFamily: 'Lato',
-        ),
+        labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, fontFamily: 'Lato'),
+        unselectedLabelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, fontFamily: 'Lato'),
         indicatorColor: const Color(0xFF0F265C),
         indicatorWeight: 3,
         tabs: const [
@@ -497,44 +491,18 @@ class _GameHubScreenState extends State<GameHubScreen>
   }
 
   Widget _buildTabContent() {
-    if (!widget.game.isLive && !widget.game.isFinal) {
-      return _buildEmptyState();
-    }
-
-    if (_errorMessage != null) {
-      return _buildErrorState();
-    }
-
+    if (!widget.game.isLive && !widget.game.isFinal) return _buildEmptyState();
+    if (_errorMessage != null) return _buildErrorState();
     return TabBarView(
       controller: _tabController,
       children: [
-        _buildTimelineTab(),
-        _buildGoalsTab(),
-        _buildPenaltiesTab(),
-        _buildBoxscoreTab(),
-        _buildRecapTab(),
+        TimelineTab(gameData: _gameData),
+        GoalsTab(gameData: _gameData),
+        PenaltiesTab(gameData: _gameData),
+        BoxscoreTab(gameData: _gameData),
+        RecapTab(gameData: _gameData),
       ],
     );
-  }
-
-  Widget _buildTimelineTab() {
-    return TimelineTab(gameData: _gameData);
-  }
-
-  Widget _buildGoalsTab() {
-    return GoalsTab(gameData: _gameData);
-  }
-
-  Widget _buildPenaltiesTab() {
-    return PenaltiesTab(gameData: _gameData);
-  }
-
-  Widget _buildBoxscoreTab() {
-    return BoxscoreTab(gameData: _gameData);
-  }
-
-  Widget _buildRecapTab() {
-    return RecapTab(gameData: _gameData);
   }
 
   Widget _buildEmptyState() {
@@ -544,30 +512,17 @@ class _GameHubScreenState extends State<GameHubScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.sports_hockey,
-              size: 80,
-              color: Colors.grey.shade300,
-            ),
+            Icon(Icons.sports_hockey, size: 80, color: Colors.grey.shade300),
             const SizedBox(height: 16),
             const Text(
               'Game details are not available yet.',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF6B9EB8),
-                fontFamily: 'Lato',
-              ),
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Color(0xFF6B9EB8), fontFamily: 'Lato'),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 8),
             const Text(
               'Check again closer to puck drop.',
-              style: TextStyle(
-                fontSize: 14,
-                color: Color(0xFF6B9EB8),
-                fontFamily: 'Lato',
-              ),
+              style: TextStyle(fontSize: 14, color: Color(0xFF6B9EB8), fontFamily: 'Lato'),
               textAlign: TextAlign.center,
             ),
           ],
@@ -583,27 +538,17 @@ class _GameHubScreenState extends State<GameHubScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(
-              Icons.error_outline,
-              size: 80,
-              color: Colors.red,
-            ),
+            const Icon(Icons.error_outline, size: 80, color: Colors.red),
             const SizedBox(height: 16),
             Text(
               _errorMessage ?? 'An error occurred',
-              style: const TextStyle(
-                fontSize: 16,
-                color: Colors.red,
-                fontFamily: 'Lato',
-              ),
+              style: const TextStyle(fontSize: 16, color: Colors.red, fontFamily: 'Lato'),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 16),
             ElevatedButton(
               onPressed: _loadGameData,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF0F265C),
-              ),
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F265C)),
               child: const Text('Retry'),
             ),
           ],

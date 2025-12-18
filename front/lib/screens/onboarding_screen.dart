@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/user_preferences.dart';
 import '../services/preferences_service.dart';
 import '../widgets/main_navigation.dart';
+import '../shared/services/logger.dart'; // Додано логер згідно з гайдом
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
@@ -42,19 +43,77 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     }
   }
 
+  // ВІКНО ПОЯСНЕННЯ ДОСТУПУ (Стилізоване під додаток)
+  Future<void> _showPermissionExplanation() async {
+    return showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Icon(Icons.notifications_active, size: 48, color: Color(0xFF0F265C)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Stay in the Game',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF0F265C),
+                fontFamily: 'Lato',
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'RinkSync needs notification access to send you real-time goal alerts, game starts, and final scores for your favorite teams.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey.shade700,
+                fontFamily: 'Lato',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () => Navigator.pop(context),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0F265C),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: const Text(
+                'I Understand',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _completeOnboarding({bool useDefaults = false}) async {
-    // Зберігаємо налаштування
+    // Якщо користувач увімкнув сповіщення, показуємо пояснення перед завершенням
+    if (!useDefaults && _goalAlertsEnabled) {
+      await _showPermissionExplanation();
+    }
+
+    // Зберігаємо налаштування (ВИПРАВЛЕНО: назва параметра goalAlerts)
     final preferences = UserPreferences(
       isFirstLaunch: false,
       defaultGameDay: useDefaults ? 'today' : _selectedGameDay,
-      goalAlertsEnabled: useDefaults ? true : _goalAlertsEnabled,
+      goalAlerts: useDefaults ? true : _goalAlertsEnabled, // Виправлено помилку іменування
       homeFocus: useDefaults ? 'games' : _selectedHomeFocus,
     );
 
     await _preferencesService.savePreferences(preferences);
+    AppLogger.i('Onboarding completed. Settings: $preferences'); // Логування згідно з гайдом
 
     if (mounted) {
-      // Переходимо на MainNavigation
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const MainNavigation()),
@@ -69,7 +128,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // Skip button (тільки на перших двох слайдах)
             if (_currentPage < 2)
               Align(
                 alignment: Alignment.topRight,
@@ -87,7 +145,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             else
               const SizedBox(height: 48),
 
-            // PageView з слайдами
             Expanded(
               child: PageView(
                 controller: _pageController,
@@ -100,7 +157,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               ),
             ),
 
-            // Індикатори сторінок
             _buildPageIndicators(),
 
             const SizedBox(height: 20),
@@ -110,11 +166,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  // Slide 1: Never Miss a Drop
   Widget _buildSlide1() {
     return Column(
       children: [
-        // Зображення на всю ширину
         Expanded(
           flex: 3,
           child: Container(
@@ -139,8 +193,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             ),
           ),
         ),
-
-        // Контент внизу
         Expanded(
           flex: 2,
           child: Padding(
@@ -148,7 +200,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Заголовок
                 const Text(
                   'Never Miss a Drop',
                   style: TextStyle(
@@ -159,10 +210,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   ),
                   textAlign: TextAlign.center,
                 ),
-
                 const SizedBox(height: 16),
-
-                // Опис
                 const Text(
                   'Track live scores, play-by-play updates, and boxscores from one place.',
                   style: TextStyle(
@@ -173,10 +221,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   ),
                   textAlign: TextAlign.center,
                 ),
-
                 const Spacer(),
-
-                // Кнопка Next
                 Padding(
                   padding: const EdgeInsets.only(bottom: 20),
                   child: SizedBox(
@@ -211,11 +256,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  // Slide 2: Turn Stats into Insight
   Widget _buildSlide2() {
     return Column(
       children: [
-        // Зображення на всю ширину
         Expanded(
           flex: 3,
           child: Container(
@@ -240,8 +283,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             ),
           ),
         ),
-
-        // Контент внизу
         Expanded(
           flex: 2,
           child: Padding(
@@ -249,7 +290,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Заголовок
                 const Text(
                   'Turn Stats into Insight',
                   style: TextStyle(
@@ -260,10 +300,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   ),
                   textAlign: TextAlign.center,
                 ),
-
                 const SizedBox(height: 16),
-
-                // Опис
                 const Text(
                   'Use Outcome Studio to test your predictions and build your streak.',
                   style: TextStyle(
@@ -274,10 +311,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   ),
                   textAlign: TextAlign.center,
                 ),
-
                 const Spacer(),
-
-                // Кнопка Next
                 Padding(
                   padding: const EdgeInsets.only(bottom: 20),
                   child: SizedBox(
@@ -312,13 +346,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  // Slide 3: Make RinkSync Yours (Preferences)
   Widget _buildSlide3() {
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Зображення на всю ширину
           Container(
             width: double.infinity,
             height: 280,
@@ -341,13 +373,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               },
             ),
           ),
-
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Заголовок
                 const Center(
                   child: Text(
                     'Make RinkSync Yours',
@@ -360,10 +390,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     textAlign: TextAlign.center,
                   ),
                 ),
-
                 const SizedBox(height: 12),
-
-                // Опис
                 const Center(
                   child: Text(
                     'Set how you want to browse games and alerts.',
@@ -375,13 +402,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     textAlign: TextAlign.center,
                   ),
                 ),
-
                 const SizedBox(height: 32),
-
-                // Goal alerts toggle
                 Container(
-                  padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   decoration: BoxDecoration(
                     color: Colors.grey.shade50,
                     borderRadius: BorderRadius.circular(12),
@@ -410,10 +433,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     ],
                   ),
                 ),
-
                 const SizedBox(height: 24),
-
-                // Default game day
                 const Text(
                   'Default game day',
                   style: TextStyle(
@@ -423,9 +443,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     fontFamily: 'Lato',
                   ),
                 ),
-
                 const SizedBox(height: 12),
-
                 Row(
                   children: [
                     _buildGameDayChip('Today', 'today'),
@@ -435,10 +453,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     _buildGameDayChip('Tomorrow', 'tomorrow'),
                   ],
                 ),
-
                 const SizedBox(height: 24),
-
-                // Home focus
                 const Text(
                   'Home focus',
                   style: TextStyle(
@@ -448,9 +463,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     fontFamily: 'Lato',
                   ),
                 ),
-
                 const SizedBox(height: 12),
-
                 Row(
                   children: [
                     _buildHomeFocusChip('Teams', 'teams'),
@@ -460,10 +473,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     _buildHomeFocusChip('Predictions', 'predictions'),
                   ],
                 ),
-
                 const SizedBox(height: 40),
-
-                // Jump in button
                 SizedBox(
                   width: double.infinity,
                   height: 50,
@@ -487,10 +497,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     ),
                   ),
                 ),
-
                 const SizedBox(height: 12),
-
-                // Skip for now button
                 SizedBox(
                   width: double.infinity,
                   height: 50,
@@ -512,7 +519,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     ),
                   ),
                 ),
-
                 const SizedBox(height: 20),
               ],
             ),
@@ -522,7 +528,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  // Chip для вибору дня гри
   Widget _buildGameDayChip(String label, String value) {
     final isSelected = _selectedGameDay == value;
     return Expanded(
@@ -555,7 +560,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  // Chip для вибору home focus
   Widget _buildHomeFocusChip(String label, String value) {
     final isSelected = _selectedHomeFocus == value;
     return Expanded(
@@ -588,7 +592,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  // Індикатори сторінок
   Widget _buildPageIndicators() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,

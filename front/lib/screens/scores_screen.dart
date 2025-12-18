@@ -3,11 +3,14 @@ import 'package:intl/intl.dart';
 import 'package:stats1/screens/settings_screen.dart';
 import '../models/game.dart';
 import '../models/favorites_store.dart';
+import '../models/user_preferences.dart'; // ДОДАНО
 import '../services/nhl_api_service.dart';
 import '../services/favorites_service.dart';
 import '../services/preferences_service.dart';
+import '../services/notification_service.dart'; // ДОДАНО
+import '../shared/services/logger.dart'; // ДОДАНО
 import '../widgets/custom_date_picker.dart';
-import '../widgets/error_display.dart'; // ДОДАНО
+import '../widgets/error_display.dart';
 import 'game_hub_screen.dart';
 import 'outcome_studio_screen.dart';
 
@@ -28,6 +31,7 @@ class _ScoresScreenState extends State<ScoresScreen>
   DateTime _selectedDate = DateTime.now();
   List<Game> _allGames = [];
   FavoritesStore _favorites = const FavoritesStore();
+  UserPreferences _userPrefs = const UserPreferences(); // ДОДАНО
   bool _isLoading = true;
   String? _errorMessage;
 
@@ -48,6 +52,7 @@ class _ScoresScreenState extends State<ScoresScreen>
     final today = DateTime(now.year, now.month, now.day);
 
     setState(() {
+      _userPrefs = prefs; // ЗБЕРІГАЄМО ПРЕФИ
       _selectedDate = _getDateFromPreference(prefs.defaultGameDay);
       if (_selectedDate.isAfter(today)) {
         _selectedDate = today;
@@ -85,7 +90,7 @@ class _ScoresScreenState extends State<ScoresScreen>
 
     try {
       final dateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
-      print('Loading games for date: $dateStr');
+      AppLogger.d('Loading games for date: $dateStr'); // Використовуємо AppLogger
 
       final games = await _apiService.getScheduleByDate(dateStr);
 
@@ -96,9 +101,8 @@ class _ScoresScreenState extends State<ScoresScreen>
 
       _debugGameStatuses();
     } catch (e) {
-      print('Error loading games: $e');
+      AppLogger.e('Error loading games: $e'); // Використовуємо AppLogger
       setState(() {
-        // Зберігаємо оригінальний текст помилки для логіки
         _errorMessage = e.toString();
         _isLoading = false;
       });
@@ -115,23 +119,19 @@ class _ScoresScreenState extends State<ScoresScreen>
       _allGames.where((game) => game.isFinal).toList();
 
   void _debugGameStatuses() {
-    print('=== GAME STATUSES DEBUG ===');
-    print('Current DateTime: ${DateTime.now()}');
-    print('Selected Date: $_selectedDate');
-    print('Total games: ${_allGames.length}');
-    print('Live: ${_liveGames.length}');
-    print('Upcoming: ${_upcomingGames.length}');
-    print('Final: ${_finalGames.length}');
-    print('---');
+    AppLogger.d('=== GAME STATUSES DEBUG ===');
+    AppLogger.d('Current DateTime: ${DateTime.now()}');
+    AppLogger.d('Selected Date: $_selectedDate');
+    AppLogger.d('Total games: ${_allGames.length}');
+    AppLogger.d('Live: ${_liveGames.length}');
+    AppLogger.d('Upcoming: ${_upcomingGames.length}');
+    AppLogger.d('Final: ${_finalGames.length}');
+    AppLogger.d('---');
 
     for (var game in _allGames.take(3)) {
-      print('Game ${game.gameId}:');
-      print('  status="${game.status}"');
-      print('  gameTime=${game.dateTime}');
-      print('  isLive=${game.isLive}, isUpcoming=${game.isUpcoming}, isFinal=${game.isFinal}');
-      print('  ${game.awayTeamName} @ ${game.homeTeamName}');
+      AppLogger.d('Game ${game.gameId}: status="${game.status}", isLive=${game.isLive}, isUpcoming=${game.isUpcoming}, isFinal=${game.isFinal}');
     }
-    print('=========================');
+    AppLogger.d('=========================');
   }
 
   void _previousDay() {
@@ -169,8 +169,35 @@ class _ScoresScreenState extends State<ScoresScreen>
     await _loadFavorites();
   }
 
-  Future<void> _toggleAlerts(int gameId) async {
-    await _favoritesService.toggleAlertsForGame(gameId);
+  // МОДИФІКОВАНО: Інтеграція сповіщень
+  Future<void> _toggleAlerts(Game game) async {
+    await _favoritesService.toggleAlertsForGame(game.gameId);
+    final isEnabled = !_favorites.hasAlertsForGame(game.gameId); // Стан після перемикання
+
+    if (isEnabled) {
+      AppLogger.i('Enabling alerts for game: ${game.gameId}');
+
+      // Плануємо сповіщення про початок матчу
+      await NotificationService.scheduleMatchAlert(
+        gameId: game.gameId,
+        teamNames: '${game.awayTeamName} @ ${game.homeTeamName}',
+        startTime: game.dateTime,
+      );
+
+      // Плануємо сповіщення про завершення, якщо увімкнено в префах
+      if (_userPrefs.finalScoreAlerts) {
+        await NotificationService.scheduleMatchAlert(
+          gameId: game.gameId + 1000000,
+          teamNames: 'Final Result: ${game.awayTeamName} vs ${game.homeTeamName}',
+          startTime: game.dateTime.add(const Duration(hours: 3)),
+        );
+      }
+    } else {
+      AppLogger.d('Disabling alerts for game: ${game.gameId}');
+      await NotificationService.cancelMatchAlert(game.gameId);
+      // Логіка скасування в NotificationService
+    }
+
     await _loadFavorites();
   }
 
@@ -192,7 +219,7 @@ class _ScoresScreenState extends State<ScoresScreen>
     );
 
     if (result == true) {
-      print('Favorites changed in GameHub, reloading...');
+      AppLogger.d('Favorites changed in GameHub, reloading...');
       await _loadFavorites();
     }
   }
@@ -248,9 +275,6 @@ class _ScoresScreenState extends State<ScoresScreen>
       ),
     );
   }
-
-  // ... (Header, DateNavigation, Tabs, TeamRow, EmptyState - без змін) ...
-  // Щоб не займати місце, я пропускаю ідентичні методи і переходжу до виправленого ErrorState
 
   Widget _buildHeader() {
     return Padding(
@@ -535,7 +559,7 @@ class _ScoresScreenState extends State<ScoresScreen>
                           ),
                         ),
                         IconButton(
-                          onPressed: () => _toggleAlerts(game.gameId),
+                          onPressed: () => _toggleAlerts(game), // ВИКЛИКАЄМО МОДИФІКОВАНИЙ МЕТОД
                           icon: Icon(
                             _favorites.hasAlertsForGame(game.gameId)
                                 ? Icons.notifications
@@ -662,21 +686,16 @@ class _ScoresScreenState extends State<ScoresScreen>
     );
   }
 
-  // ВИПРАВЛЕНО: Використовуємо ErrorDisplay для помилок мережі
   Widget _buildErrorState() {
-    // Витягуємо чистий текст помилки (прибираємо слово 'Exception:')
     final String cleanMessage = _errorMessage?.replaceAll('Exception: ', '') ?? 'An error occurred';
 
-    // Перевіряємо, чи це помилка інтернету
     if (cleanMessage.contains("No internet")) {
       return ErrorDisplay(
-        // Передаємо конкретне повідомлення в наш віджет
         message: "No internet connection available. Please try again later.",
         onRetry: _loadGames,
       );
     }
 
-    // Для всіх інших помилок (наприклад, збій сервера) залишаємо ваш стандартний дизайн
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,

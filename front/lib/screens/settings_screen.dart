@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/preferences_service.dart';
 import '../models/user_preferences.dart';
+import '../shared/services/logger.dart'; //
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -12,11 +13,9 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final PreferencesService _prefsService = PreferencesService();
 
-  // Використовуємо початкові значення з вашої моделі
   UserPreferences _prefs = const UserPreferences();
   bool _isLoading = true;
 
-  // Кольори та стилі додатка
   final Color _textColor = const Color(0xFF0F265C);
   final Color _headerColor = const Color(0xFF8ACEF2);
   final Color _bgColor = const Color(0xFFE8F4F8);
@@ -28,20 +27,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _loadSettings() async {
-    // Завантажуємо налаштування через ваш сервіс
     final prefs = await _prefsService.loadPreferences();
     if (mounted) {
       setState(() {
         _prefs = prefs;
         _isLoading = false;
       });
+      AppLogger.d('Settings loaded successfully'); //
     }
   }
 
-  Future<void> _updateSetting(UserPreferences newPrefs) async {
+  // Оновлений метод для збереження з логуванням
+  Future<void> _updateSetting(UserPreferences newPrefs, String settingName, dynamic value) async {
     setState(() => _prefs = newPrefs);
-    // Зберігаємо оновлені налаштування
     await _prefsService.savePreferences(newPrefs);
+    // Вимога п. 11 гайду: кожна зміна логується через AppLogger
+    AppLogger.i('User preference updated: $settingName = $value'); //
   }
 
   @override
@@ -106,15 +107,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
       elevation: 0,
       child: Column(
         children: [
-          // Реальний перемикач з вашої моделі
-          _buildToggleTile('Goal alerts', _prefs.goalAlertsEnabled, (v) {
-            _updateSetting(_prefs.copyWith(goalAlertsEnabled: v));
+          // 1. Goal Alerts
+          _buildToggleTile('Goal alerts', _prefs.goalAlerts, (v) {
+            _updateSetting(_prefs.copyWith(goalAlerts: v), 'goalAlerts', v);
           }),
           const Divider(height: 1),
-          // Заглушки за запитом
-          _buildToggleTile('Final score alerts', false, (v) {}),
+
+          // 2. Final Score Alerts (підключено до моделі)
+          _buildToggleTile('Final score alerts', _prefs.finalScoreAlerts, (v) {
+            _updateSetting(_prefs.copyWith(finalScoreAlerts: v), 'finalScoreAlerts', v);
+          }),
           const Divider(height: 1),
-          _buildToggleTile('Prediction reminders', true, (v) {}),
+
+          // 3. Prediction Reminders (підключено до моделі)
+          _buildToggleTile('Prediction reminders', _prefs.predictionReminders, (v) {
+            _updateSetting(_prefs.copyWith(predictionReminders: v), 'predictionReminders', v);
+          }),
         ],
       ),
     );
@@ -156,6 +164,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showResetConfirmation(BuildContext context) {
+    // Використання діалогу згідно з паттерном п. 8.1 гайду
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -176,7 +185,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () {
+                AppLogger.d('Reset cancelled'); //
+                Navigator.pop(context);
+              },
               child: Text(
                 'Cancel',
                 style: TextStyle(color: Colors.grey.shade600, fontFamily: 'Lato'),
@@ -185,8 +197,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ElevatedButton(
               onPressed: () async {
                 Navigator.pop(context);
-                // Встановлюємо перший запуск у true для скидання
-                await _updateSetting(_prefs.copyWith(isFirstLaunch: true));
+                AppLogger.w('User initiated application reset'); //
+                await _updateSetting(_prefs.copyWith(isFirstLaunch: true), 'isFirstLaunch', true);
 
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -232,12 +244,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const Divider(height: 1),
           ListTile(
             title: const Text('Privacy Policy', style: TextStyle(color: Colors.blue, fontFamily: 'Lato')),
-            onTap: () {}, // Заглушка
+            onTap: () => AppLogger.d('Privacy Policy tapped'), //
           ),
           const Divider(height: 1),
           ListTile(
             title: const Text('Terms of Service', style: TextStyle(color: Colors.blue, fontFamily: 'Lato')),
-            onTap: () {}, // Заглушка
+            onTap: () => AppLogger.d('Terms of Service tapped'), //
           ),
         ],
       ),

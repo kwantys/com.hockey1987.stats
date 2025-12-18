@@ -1,5 +1,6 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_preferences.dart';
+import '../shared/services/logger.dart'; // Додано для логування
 
 /// Сервіс для роботи з налаштуваннями користувача
 class PreferencesService {
@@ -12,13 +13,13 @@ class PreferencesService {
       final jsonString = prefs.getString(_prefsKey);
 
       if (jsonString == null) {
-        // Якщо налаштувань немає - повертаємо дефолтні
+        AppLogger.d('No preferences found, returning defaults');
         return const UserPreferences();
       }
 
       return UserPreferences.fromJsonString(jsonString);
-    } catch (e) {
-      // У разі помилки повертаємо дефолтні налаштування
+    } catch (e, stack) {
+      AppLogger.e('Error loading preferences', e, stack);
       return const UserPreferences();
     }
   }
@@ -28,26 +29,38 @@ class PreferencesService {
     try {
       final prefs = await SharedPreferences.getInstance();
       final jsonString = preferences.toJsonString();
-      return await prefs.setString(_prefsKey, jsonString);
-    } catch (e) {
+      final result = await prefs.setString(_prefsKey, jsonString);
+
+      if (result) {
+        AppLogger.d('Preferences saved successfully: $jsonString');
+      }
+      return result;
+    } catch (e, stack) {
+      AppLogger.e('Failed to save preferences', e, stack);
       return false;
     }
   }
 
-  /// Оновити конкретне поле
+  /// Оновити конкретне поле (ВИПРАВЛЕНО: додано нові поля сповіщень)
   Future<bool> updatePreference({
     bool? isFirstLaunch,
     String? defaultGameDay,
-    bool? goalAlertsEnabled,
+    bool? goalAlerts,           // Оновлено
+    bool? finalScoreAlerts,     // Додано
+    bool? predictionReminders,  // Додано
     String? homeFocus,
   }) async {
     final currentPrefs = await loadPreferences();
     final updatedPrefs = currentPrefs.copyWith(
       isFirstLaunch: isFirstLaunch,
       defaultGameDay: defaultGameDay,
-      goalAlertsEnabled: goalAlertsEnabled,
+      goalAlerts: goalAlerts,
+      finalScoreAlerts: finalScoreAlerts,
+      predictionReminders: predictionReminders,
       homeFocus: homeFocus,
     );
+
+    AppLogger.i('Updating preference field');
     return await savePreferences(updatedPrefs);
   }
 
@@ -59,11 +72,13 @@ class PreferencesService {
 
   /// Встановити що онбординг пройдено
   Future<bool> setOnboardingCompleted() async {
+    AppLogger.i('Onboarding completed');
     return await updatePreference(isFirstLaunch: false);
   }
 
-  /// Скинути налаштування до дефолтних (для re-run onboarding)
+  /// Скинути налаштування до дефолтних
   Future<bool> resetToDefaults() async {
+    AppLogger.w('Resetting preferences to defaults');
     return await savePreferences(const UserPreferences());
   }
 
@@ -71,8 +86,10 @@ class PreferencesService {
   Future<bool> clearPreferences() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      AppLogger.w('Clearing all shared preferences');
       return await prefs.remove(_prefsKey);
-    } catch (e) {
+    } catch (e, stack) {
+      AppLogger.e('Error clearing preferences', e, stack);
       return false;
     }
   }
