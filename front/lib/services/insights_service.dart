@@ -210,8 +210,6 @@ class InsightsService {
       goalsFor.add(teamScore);
       goalsAgainst.add(oppScore);
 
-      // Shots (якщо є дані)
-      // TODO: витягнути з boxscore якщо потрібно
       shotsFor.add(teamScore * 3); // Mock data
       shotsAgainst.add(oppScore * 3);
     }
