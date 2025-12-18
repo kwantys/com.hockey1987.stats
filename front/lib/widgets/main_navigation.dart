@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:stats1/screens/insight_lab_screen.dart';
 import '../screens/scores_screen.dart';
 import '../screens/standings_screen.dart';
 import '../screens/my_rink_screen.dart';
@@ -20,7 +21,7 @@ class _MainNavigationState extends State<MainNavigation> {
     const ScoresScreen(),
     const StandingsScreen(),
     const TeamsScreen(),
-    const InsightScreen(),
+    const InsightLabScreen(),
     const MyRinkScreen(),
   ];
 
@@ -158,34 +159,6 @@ class _MainNavigationState extends State<MainNavigation> {
       default:
         return Icons.home;
     }
-  }
-}
-
-// ============================================================
-// PLACEHOLDER ЕКРАНИ (замініть на справжні екрани)
-// ============================================================
-
-
-
-class InsightScreen extends StatelessWidget {
-  const InsightScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Insight'),
-        backgroundColor: const Color(0xFF0F265C),
-        foregroundColor: Colors.white,
-        automaticallyImplyLeading: false,
-      ),
-      body: const Center(
-        child: Text(
-          'Insight Screen',
-          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-        ),
-      ),
-    );
   }
 }
 

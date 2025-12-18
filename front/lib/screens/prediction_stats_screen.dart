@@ -5,6 +5,7 @@ import '../services/nhl_api_service.dart';
 import '../models/game.dart';
 
 /// Prediction Stats Screen - detailed statistics and history
+/// ВИПРАВЛЕННЯ: Додано автоматичне оцінювання pending прогнозів
 class PredictionStatsScreen extends StatefulWidget {
   const PredictionStatsScreen({super.key});
 
@@ -30,9 +31,9 @@ class _PredictionStatsScreenState extends State<PredictionStatsScreen> {
   bool _isScoring = false;
 
   // Filters
-  String _selectedPeriod = 'All'; // Last 7, Last 30, Season, All
-  String _selectedMonth = 'Nov'; // For "By month" filter
-  String _sortBy = 'Date'; // Date, Points, Accuracy impact
+  String _selectedPeriod = 'All';
+  String _selectedMonth = 'Nov';
+  String _sortBy = 'Date';
 
   @override
   void initState() {
@@ -40,10 +41,70 @@ class _PredictionStatsScreenState extends State<PredictionStatsScreen> {
     _loadData();
   }
 
+  // ========== ВИПРАВЛЕННЯ: Додано автоматичне оцінювання ==========
+
+  /// Автоматично оцінює pending прогнози при завантаженні (без повідомлень)
+  Future<void> _scorePendingPredictionsQuietly() async {
+    try {
+      final pending = await _predictorService.getPendingPredictions();
+
+      if (pending.isEmpty) {
+        print('📊 No pending predictions to score');
+        return;
+      }
+
+      print('📊 Auto-scoring ${pending.length} pending predictions...');
+      int scoredCount = 0;
+
+      for (var prediction in pending) {
+        final gamePk = prediction['gamePk'] as int;
+        final predictionId = prediction['id'] as String;
+        final picks = prediction['picks'] as Map<String, dynamic>;
+
+        try {
+          final game = await _apiService.getGameById(gamePk);
+
+          // Пропускаємо якщо гра ще не завершена
+          if (!game.isFinal) {
+            print('   ⏳ Game $gamePk still in progress, skipping');
+            continue;
+          }
+
+          print('   ✅ Game $gamePk is FINAL, scoring prediction...');
+
+          final gameResult = _prepareGameResult(game);
+          final scoring = _predictorService.scorePrediction(picks, gameResult);
+
+          await _predictorService.updatePredictionResult(
+            predictionId,
+            scoring['result'] as Map<String, dynamic>,
+            scoring['points'] as int,
+          );
+
+          scoredCount++;
+          print('   🎯 Prediction scored: ${scoring['points']} points');
+        } catch (e) {
+          print('   ⚠️ Error scoring prediction $predictionId: $e');
+          continue;
+        }
+      }
+
+      if (scoredCount > 0) {
+        print('✅ Auto-scored $scoredCount predictions');
+      }
+    } catch (e) {
+      print('❌ Error in auto-scoring: $e');
+    }
+  }
+
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
 
     try {
+      // ВИПРАВЛЕННЯ: Спочатку автоматично оцінюємо pending прогнози
+      await _scorePendingPredictionsQuietly();
+
+      // Тепер завантажуємо оновлені дані
       final predictions = await _predictorService.loadPredictions();
       final stats = await _predictorService.getStats();
       final totalPoints = await _predictorService.getTotalPoints();
@@ -114,6 +175,7 @@ class _PredictionStatsScreenState extends State<PredictionStatsScreen> {
     }
   }
 
+  // Залишаємо оригінальний метод для ручного оцінювання (з повідомленнями)
   Future<void> _scorePendingPredictions() async {
     setState(() => _isScoring = true);
 
@@ -243,7 +305,6 @@ class _PredictionStatsScreenState extends State<PredictionStatsScreen> {
   }
 
   List<Map<String, dynamic>> get _filteredPredictions {
-    // Show ALL predictions (both pending and scored)
     var filtered = List<Map<String, dynamic>>.from(_predictions);
 
     // Apply period filter
@@ -256,13 +317,19 @@ class _PredictionStatsScreenState extends State<PredictionStatsScreen> {
       } else if (_selectedPeriod == 'Last 30') {
         cutoffDate = now.subtract(const Duration(days: 30));
       } else {
-        // Season - from October 1st
-        cutoffDate = DateTime(now.year, 10, 1);
+        // Season - from October 1st of current year or previous if before Oct
+        final currentYear = now.month >= 10 ? now.year : now.year - 1;
+        cutoffDate = DateTime(currentYear, 10, 1);
       }
 
       filtered = filtered.where((p) {
-        final date = DateTime.parse(p['createdAt']);
-        return date.isAfter(cutoffDate);
+        try {
+          final dateStr = p['createdAt'] as String;
+          final date = DateTime.parse(dateStr);
+          return date.isAfter(cutoffDate);
+        } catch (e) {
+          return false;
+        }
       }).toList();
     }
 
@@ -274,8 +341,6 @@ class _PredictionStatsScreenState extends State<PredictionStatsScreen> {
         return bPoints.compareTo(aPoints);
       });
     } else if (_sortBy == 'Accuracy impact') {
-      // Sort by how much the prediction affected accuracy
-      // High impact = correct winner with high confidence (more points)
       filtered.sort((a, b) {
         final aResult = a['result'] as Map<String, dynamic>?;
         final bResult = b['result'] as Map<String, dynamic>?;
@@ -283,7 +348,6 @@ class _PredictionStatsScreenState extends State<PredictionStatsScreen> {
         final aWinner = aResult?['winner'] == true ? 1 : 0;
         final bWinner = bResult?['winner'] == true ? 1 : 0;
 
-        // First by winner correctness, then by points
         if (aWinner != bWinner) {
           return bWinner.compareTo(aWinner);
         }
@@ -293,7 +357,7 @@ class _PredictionStatsScreenState extends State<PredictionStatsScreen> {
         return bPoints.compareTo(aPoints);
       });
     } else {
-      // Sort by date
+      // Sort by date (default)
       filtered.sort((a, b) {
         final aDate = DateTime.parse(a['createdAt']);
         final bDate = DateTime.parse(b['createdAt']);
@@ -329,20 +393,26 @@ class _PredictionStatsScreenState extends State<PredictionStatsScreen> {
           ? const Center(child: CircularProgressIndicator())
           : _predictions.isEmpty
           ? _buildEmptyState()
-          : SingleChildScrollView(
-        child: Column(
-          children: [
-            _buildStatsGrid(),
-            _buildFilters(),
-            _filteredPredictions.isEmpty
-                ? _buildNoFilteredResults()
-                : _buildPredictionsList(),
-            _buildResetButton(),
-          ],
+          : RefreshIndicator(
+        onRefresh: _loadData,
+        child: SingleChildScrollView(
+          child: Column(
+            children: [
+              _buildStatsGrid(),
+              _buildFilters(),
+              _filteredPredictions.isEmpty
+                  ? _buildNoFilteredResults()
+                  : _buildPredictionsList(),
+              _buildResetButton(),
+            ],
+          ),
         ),
       ),
     );
   }
+
+  // Решта методів залишається без змін...
+  // (копіюйте з оригінального файлу всі _build методи)
 
   Widget _buildStatsGrid() {
     final accuracy = _totalPredictions > 0
@@ -423,7 +493,6 @@ class _PredictionStatsScreenState extends State<PredictionStatsScreen> {
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Column(
         children: [
-          // Period filters
           Row(
             children: [
               _buildFilterChip('Last 7'),
@@ -436,7 +505,6 @@ class _PredictionStatsScreenState extends State<PredictionStatsScreen> {
             ],
           ),
           const SizedBox(height: 12),
-          // Month and Sort
           Row(
             children: [
               const Text(
@@ -475,7 +543,9 @@ class _PredictionStatsScreenState extends State<PredictionStatsScreen> {
     final isSelected = _selectedPeriod == label;
     return Expanded(
       child: GestureDetector(
-        onTap: () => setState(() => _selectedPeriod = label),
+        onTap: () {
+          setState(() => _selectedPeriod = label);
+        },
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 8),
           decoration: BoxDecoration(
@@ -541,7 +611,6 @@ class _PredictionStatsScreenState extends State<PredictionStatsScreen> {
       ),
       child: Column(
         children: [
-          // Table header
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
@@ -617,8 +686,6 @@ class _PredictionStatsScreenState extends State<PredictionStatsScreen> {
               ],
             ),
           ),
-
-          // Predictions list
           ListView.separated(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
@@ -641,12 +708,10 @@ class _PredictionStatsScreenState extends State<PredictionStatsScreen> {
     final createdAt = DateTime.parse(prediction['createdAt']);
     final gamePk = picks['gamePk'] as int;
 
-    // Get game details
     final gameInfo = _gameDetails[gamePk];
     final homeTeam = gameInfo?['homeTeam'] ?? 'HOME';
     final awayTeam = gameInfo?['awayTeam'] ?? 'AWAY';
 
-    // Format pick
     final winner = picks['winner'];
     final overtimeNeeded = picks['overtimeNeeded'];
     final totalGoals = picks['totalGoals'];
@@ -654,14 +719,11 @@ class _PredictionStatsScreenState extends State<PredictionStatsScreen> {
     final awayScore = picks['awayScore'];
 
     String pickText = _formatPick(winner, overtimeNeeded, totalGoals, homeScore, awayScore);
-
-    // Format outcome
     String outcomeText = status == 'pending' ? 'Pending' : _formatOutcome(result, points);
     Color outcomeColor = status == 'pending'
-        ? const Color(0xFFFFA500) // Orange for pending
+        ? const Color(0xFFFFA500)
         : _getOutcomeColor(outcomeText, points);
 
-    // Row background for alternating colors
     final isEven = _filteredPredictions.indexOf(prediction) % 2 == 0;
 
     return Container(
@@ -791,53 +853,21 @@ class _PredictionStatsScreenState extends State<PredictionStatsScreen> {
   Widget _buildResetButton() {
     return Container(
       padding: const EdgeInsets.all(16),
-      child: Column(
-        children: [
-          // Back to studio button
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: () {
-                Navigator.pop(context); // Go back, or navigate to Outcome Studio
-              },
-              icon: const Icon(Icons.arrow_back, size: 18),
-              label: const Text(
-                'Back to studio',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  fontFamily: 'Lato',
-                ),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF0F265C),
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-            ),
+      child: TextButton.icon(
+        onPressed: _resetStats,
+        icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+        label: const Text(
+          'Reset stats',
+          style: TextStyle(
+            color: Colors.red,
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            fontFamily: 'Lato',
           ),
-          const SizedBox(height: 8),
-          // Reset stats button
-          TextButton.icon(
-            onPressed: _resetStats,
-            icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
-            label: const Text(
-              'Reset stats',
-              style: TextStyle(
-                color: Colors.red,
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                fontFamily: 'Lato',
-              ),
-            ),
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            ),
-          ),
-        ],
+        ),
+        style: TextButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        ),
       ),
     );
   }
