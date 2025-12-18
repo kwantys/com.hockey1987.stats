@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:stats1/screens/settings_screen.dart';
 import '../models/game.dart';
 import '../models/favorites_store.dart';
 import '../services/nhl_api_service.dart';
@@ -279,7 +280,12 @@ class _ScoresScreenState extends State<ScoresScreen>
           ),
           IconButton(
             onPressed: () {
-              // TODO: Navigate to Settings
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const SettingsScreen(),
+                ),
+              );
             },
             icon: const Icon(Icons.settings, color: Color(0xFF0F265C)),
           ),
