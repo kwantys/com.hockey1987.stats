@@ -7,8 +7,9 @@ import '../services/nhl_api_service.dart';
 import '../services/favorites_service.dart';
 import '../services/preferences_service.dart';
 import '../widgets/custom_date_picker.dart';
+import '../widgets/error_display.dart'; // ДОДАНО
 import 'game_hub_screen.dart';
-import 'outcome_studio_screen.dart'; // ДОДАНО
+import 'outcome_studio_screen.dart';
 
 class ScoresScreen extends StatefulWidget {
   const ScoresScreen({super.key});
@@ -97,7 +98,8 @@ class _ScoresScreenState extends State<ScoresScreen>
     } catch (e) {
       print('Error loading games: $e');
       setState(() {
-        _errorMessage = 'Failed to load games: $e';
+        // Зберігаємо оригінальний текст помилки для логіки
+        _errorMessage = e.toString();
         _isLoading = false;
       });
     }
@@ -172,7 +174,6 @@ class _ScoresScreenState extends State<ScoresScreen>
     await _loadFavorites();
   }
 
-  // ВИПРАВЛЕНО: Тепер відкриває Outcome Studio з предзаповненою грою
   void _openOutcomeStudio(Game game) {
     Navigator.push(
       context,
@@ -229,7 +230,6 @@ class _ScoresScreenState extends State<ScoresScreen>
           ],
         ),
       ),
-      // ВИПРАВЛЕНО: FAB відкриває Outcome Studio без предзаповнення
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {
           Navigator.push(
@@ -248,6 +248,9 @@ class _ScoresScreenState extends State<ScoresScreen>
       ),
     );
   }
+
+  // ... (Header, DateNavigation, Tabs, TeamRow, EmptyState - без змін) ...
+  // Щоб не займати місце, я пропускаю ідентичні методи і переходжу до виправленого ErrorState
 
   Widget _buildHeader() {
     return Padding(
@@ -659,7 +662,21 @@ class _ScoresScreenState extends State<ScoresScreen>
     );
   }
 
+  // ВИПРАВЛЕНО: Використовуємо ErrorDisplay для помилок мережі
   Widget _buildErrorState() {
+    // Витягуємо чистий текст помилки (прибираємо слово 'Exception:')
+    final String cleanMessage = _errorMessage?.replaceAll('Exception: ', '') ?? 'An error occurred';
+
+    // Перевіряємо, чи це помилка інтернету
+    if (cleanMessage.contains("No internet")) {
+      return ErrorDisplay(
+        // Передаємо конкретне повідомлення в наш віджет
+        message: "No internet connection available. Please try again later.",
+        onRetry: _loadGames,
+      );
+    }
+
+    // Для всіх інших помилок (наприклад, збій сервера) залишаємо ваш стандартний дизайн
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -670,14 +687,17 @@ class _ScoresScreenState extends State<ScoresScreen>
             color: Colors.red,
           ),
           const SizedBox(height: 16),
-          Text(
-            _errorMessage ?? 'An error occurred',
-            style: const TextStyle(
-              fontSize: 16,
-              color: Colors.red,
-              fontFamily: 'Lato',
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Text(
+              cleanMessage,
+              style: const TextStyle(
+                fontSize: 16,
+                color: Colors.red,
+                fontFamily: 'Lato',
+              ),
+              textAlign: TextAlign.center,
             ),
-            textAlign: TextAlign.center,
           ),
           const SizedBox(height: 16),
           ElevatedButton(
