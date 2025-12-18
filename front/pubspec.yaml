@@ -13,8 +13,8 @@ dependencies:
     sdk: flutter
   shared_preferences: ^2.5.3
   http: ^1.2.0
-  intl: ^0.19.0
-  connectivity_plus: ^6.0.3
+  intl: ^0.20.2
+  connectivity_plus: ^7.0.0
   workmanager: ^0.9.0
   flutter_local_notifications: ^19.5.0
   timezone: ^0.10.0
