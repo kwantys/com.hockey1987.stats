@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../services/insights_service.dart';
 import '../../services/favorites_service.dart';
+import '../../services/nhl_api_service.dart';
 import '../../models/team_insight.dart';
 import '../team_profile_screen.dart';
 import '../../models/team_models.dart';
@@ -16,8 +17,10 @@ class FavoritesTrendsTab extends StatefulWidget {
 class _FavoritesTrendsTabState extends State<FavoritesTrendsTab> {
   final InsightsService _insightsService = InsightsService();
   final FavoritesService _favoritesService = FavoritesService();
+  final NHLApiService _apiService = NHLApiService();
 
   List<TeamInsight> _favoriteInsights = [];
+  List<Map<String, dynamic>> _allTeams = [];
   bool _isLoading = true;
 
   @override
@@ -27,15 +30,20 @@ class _FavoritesTrendsTabState extends State<FavoritesTrendsTab> {
   }
 
   Future<void> _loadFavorites() async {
+    if (!mounted) return;
     setState(() => _isLoading = true);
 
     try {
+      // Завантажуємо дані про всі команди для коректного відображення дивізіонів
+      final teams = await _apiService.getAllTeams();
+
       // Завантажити список ID обраних команд
       final favoriteIds = await _favoritesService.getFavoriteTeams();
 
       if (favoriteIds.isEmpty) {
         if (mounted) {
           setState(() {
+            _allTeams = teams;
             _favoriteInsights = [];
             _isLoading = false;
           });
@@ -48,6 +56,7 @@ class _FavoritesTrendsTabState extends State<FavoritesTrendsTab> {
 
       if (mounted) {
         setState(() {
+          _allTeams = teams;
           _favoriteInsights = insights;
           _isLoading = false;
         });
@@ -61,6 +70,12 @@ class _FavoritesTrendsTabState extends State<FavoritesTrendsTab> {
   }
 
   void _openTeamProfile(TeamInsight insight) {
+    // ВИПРАВЛЕНО: Використовуємо .cast() для усунення помилки TypeError
+    final teamData = _allTeams.cast<Map<String, dynamic>>().firstWhere(
+          (t) => t['id'] == insight.teamId,
+      orElse: () => <String, dynamic>{},
+    );
+
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -71,8 +86,8 @@ class _FavoritesTrendsTabState extends State<FavoritesTrendsTab> {
             teamName: insight.teamName,
             teamAbbrev: insight.teamAbbrev,
             teamLogo: insight.teamLogo,
-            divisionName: '',
-            conferenceName: '',
+            divisionName: teamData['division']?.toString() ?? teamData['divisionName']?.toString() ?? '',
+            conferenceName: teamData['conference']?.toString() ?? teamData['conferenceName']?.toString() ?? '',
           ),
         ),
       ),
@@ -80,8 +95,6 @@ class _FavoritesTrendsTabState extends State<FavoritesTrendsTab> {
   }
 
   void _navigateToLeagueTables() {
-    // Переходимо на екран Standings (вкладка 1 в MainNavigation)
-    // Повертаємося назад, щоб favorites оновились
     Navigator.pop(context);
   }
 
@@ -108,6 +121,14 @@ class _FavoritesTrendsTabState extends State<FavoritesTrendsTab> {
   }
 
   Widget _buildFavoriteCard(TeamInsight insight) {
+    // ВИПРАВЛЕНО: Використовуємо .cast() для усунення помилки TypeError
+    final teamData = _allTeams.cast<Map<String, dynamic>>().firstWhere(
+          (t) => t['id'] == insight.teamId,
+      orElse: () => <String, dynamic>{},
+    );
+
+    final String division = teamData['division']?.toString() ?? teamData['divisionName']?.toString() ?? 'NHL Team';
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       elevation: 0,
@@ -122,10 +143,8 @@ class _FavoritesTrendsTabState extends State<FavoritesTrendsTab> {
           padding: const EdgeInsets.all(16),
           child: Column(
             children: [
-              // Header з лого і назвою
               Row(
                 children: [
-                  // Team logo
                   Container(
                     width: 50,
                     height: 50,
@@ -140,10 +159,7 @@ class _FavoritesTrendsTabState extends State<FavoritesTrendsTab> {
                     )
                         : _buildLogoFallback(),
                   ),
-
                   const SizedBox(width: 12),
-
-                  // Team name & division
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -161,7 +177,7 @@ class _FavoritesTrendsTabState extends State<FavoritesTrendsTab> {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          'Atlantic Division', // TODO: from real data
+                          division,
                           style: TextStyle(
                             fontSize: 13,
                             color: Colors.grey.shade600,
@@ -171,8 +187,6 @@ class _FavoritesTrendsTabState extends State<FavoritesTrendsTab> {
                       ],
                     ),
                   ),
-
-                  // Favorite star
                   const Icon(
                     Icons.star,
                     color: Color(0xFF0F265C),
@@ -180,12 +194,9 @@ class _FavoritesTrendsTabState extends State<FavoritesTrendsTab> {
                   ),
                 ],
               ),
-
               const SizedBox(height: 16),
               const Divider(height: 1),
               const SizedBox(height: 16),
-
-              // Stats grid
               Row(
                 children: [
                   Expanded(

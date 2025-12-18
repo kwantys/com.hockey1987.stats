@@ -484,7 +484,13 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
             const SizedBox(height: 16),
             ElevatedButton(
               onPressed: onBtn,
-              style: ElevatedButton.styleFrom(backgroundColor: _textColor),
+              style: ElevatedButton.styleFrom(
+                // Змінено з _textColor на _headerColor, щоб відповідати шапці
+                backgroundColor: _headerColor,
+                foregroundColor: _textColor, // Текст краще зробити темним для контрасту на блакитному
+                elevation: 0,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
               child: Text(btnLabel),
             ),
           ]

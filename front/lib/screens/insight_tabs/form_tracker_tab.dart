@@ -71,6 +71,14 @@ class _FormTrackerTabState extends State<FormTrackerTab> {
     }
   }
 
+  /// Метод для очищення вибору (видалення з екрану)
+  void _clearSelection() {
+    setState(() {
+      _selectedTeamId = null;
+      _teamInsight = null;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -192,6 +200,18 @@ class _FormTrackerTabState extends State<FormTrackerTab> {
   }
 
   Widget _buildTeamHeader() {
+    // ВИПРАВЛЕНО: Використовуємо .cast() для гарантії типу та обробляємо orElse як Map<String, dynamic>
+    final Map<String, dynamic> teamData = _allTeams
+        .cast<Map<String, dynamic>>()
+        .firstWhere(
+          (t) => t['id'] == _teamInsight?.teamId,
+      orElse: () => <String, dynamic>{},
+    );
+
+    final String division = teamData['division']?.toString() ?? teamData['divisionName']?.toString() ?? 'NHL';
+    final String conference = teamData['conference']?.toString() ?? teamData['conferenceName']?.toString() ?? '';
+    final String locationInfo = conference.isNotEmpty ? '$division Division | $conference' : '$division Division';
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -232,7 +252,7 @@ class _FormTrackerTabState extends State<FormTrackerTab> {
                   ),
                 ),
                 Text(
-                  'Atlantic Division', // TODO: from team data
+                  locationInfo,
                   style: TextStyle(
                     fontSize: 14,
                     color: Colors.grey.shade600,
@@ -243,9 +263,7 @@ class _FormTrackerTabState extends State<FormTrackerTab> {
             ),
           ),
           IconButton(
-            onPressed: () {
-              // Delete from favorites or something
-            },
+            onPressed: _clearSelection,
             icon: const Icon(Icons.delete_outline, color: Colors.red),
           ),
         ],
@@ -440,7 +458,6 @@ class LineChartPainter extends CustomPainter {
 
     canvas.drawPath(path, paint);
 
-    // Draw points
     final dotPaint = Paint()..color = color;
     for (int i = 0; i < data.length; i++) {
       final x = i * stepX;
@@ -472,11 +489,9 @@ class DualLineChartPainter extends CustomPainter {
       dataAgainst.reduce(math.max),
     );
 
-    // Fill area
     _drawFilledArea(canvas, size, dataFor, maxValue, const Color(0xFF3498DB).withOpacity(0.3));
     _drawFilledArea(canvas, size, dataAgainst, maxValue, const Color(0xFFE74C3C).withOpacity(0.3));
 
-    // Lines
     _drawLine(canvas, size, dataFor, maxValue, const Color(0xFF3498DB));
     _drawLine(canvas, size, dataAgainst, maxValue, const Color(0xFFE74C3C));
   }
@@ -493,7 +508,7 @@ class DualLineChartPainter extends CustomPainter {
 
     for (int i = 0; i < data.length; i++) {
       final x = i * stepX;
-      final normalizedY = (data[i] / maxValue).clamp(0.0, 1.0);
+      final double normalizedY = maxValue == 0 ? 0.0 : (data[i] / maxValue).toDouble().clamp(0.0, 1.0);
       final y = size.height - (normalizedY * size.height);
       path.lineTo(x, y);
     }
@@ -515,7 +530,7 @@ class DualLineChartPainter extends CustomPainter {
 
     for (int i = 0; i < data.length; i++) {
       final x = i * stepX;
-      final normalizedY = (data[i] / maxValue).clamp(0.0, 1.0);
+      final double normalizedY = maxValue == 0 ? 0.0 : (data[i] / maxValue).toDouble().clamp(0.0, 1.0);
       final y = size.height - (normalizedY * size.height);
 
       if (i == 0) {
@@ -556,8 +571,7 @@ class BarChartPainter extends CustomPainter {
     for (int i = 0; i < dataFor.length; i++) {
       final centerX = i * stepX + stepX / 2;
 
-      // Draw dataFor bar (blue)
-      final forHeight = (dataFor[i] / maxValue) * size.height;
+      final forHeight = maxValue == 0 ? 0.0 : (dataFor[i] / maxValue) * size.height;
       canvas.drawRect(
         Rect.fromLTWH(
           centerX - barWidth - 2,
@@ -568,8 +582,7 @@ class BarChartPainter extends CustomPainter {
         Paint()..color = const Color(0xFF3498DB),
       );
 
-      // Draw dataAgainst bar (red)
-      final againstHeight = (dataAgainst[i] / maxValue) * size.height;
+      final againstHeight = maxValue == 0 ? 0.0 : (dataAgainst[i] / maxValue) * size.height;
       canvas.drawRect(
         Rect.fromLTWH(
           centerX + 2,
@@ -581,7 +594,6 @@ class BarChartPainter extends CustomPainter {
       );
     }
 
-    // Draw labels (game numbers)
     for (int i = 0; i < dataFor.length; i++) {
       final centerX = i * stepX + stepX / 2;
 

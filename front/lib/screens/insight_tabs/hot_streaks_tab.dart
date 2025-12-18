@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../services/insights_service.dart';
+import '../../services/nhl_api_service.dart'; // Додано для отримання інфо про дивізіони
 import '../../models/team_insight.dart';
 import '../team_profile_screen.dart';
 import '../../models/team_models.dart';
@@ -14,9 +15,11 @@ class HotStreaksTab extends StatefulWidget {
 
 class _HotStreaksTabState extends State<HotStreaksTab> {
   final InsightsService _insightsService = InsightsService();
+  final NHLApiService _apiService = NHLApiService();
 
   int _selectedRange = 10; // 5, 10, 20
   List<TeamInsight> _insights = [];
+  List<Map<String, dynamic>> _allTeams = []; // Для отримання дивізіонів
   bool _isLoading = true;
 
   @override
@@ -26,20 +29,28 @@ class _HotStreaksTabState extends State<HotStreaksTab> {
   }
 
   Future<void> _loadInsights() async {
+    if (!mounted) return;
     setState(() => _isLoading = true);
 
     try {
+      // Завантажуємо дані команд паралельно з інсайтами
+      final teams = await _apiService.getAllTeams();
       final insights = await _insightsService.getHotStreaks(gamesRange: _selectedRange);
 
       // Сортувати по win rate (спадання)
       insights.sort((a, b) {
-        final aWinRate = a.wins / (a.wins + a.losses + a.otLosses);
-        final bWinRate = b.wins / (b.wins + b.losses + b.otLosses);
+        final aTotal = (a.wins + a.losses + a.otLosses);
+        final bTotal = (b.wins + b.losses + b.otLosses);
+
+        final aWinRate = aTotal > 0 ? a.wins / aTotal : 0.0;
+        final bWinRate = bTotal > 0 ? b.wins / bTotal : 0.0;
+
         return bWinRate.compareTo(aWinRate);
       });
 
       if (mounted) {
         setState(() {
+          _allTeams = teams;
           _insights = insights;
           _isLoading = false;
         });
@@ -53,6 +64,7 @@ class _HotStreaksTabState extends State<HotStreaksTab> {
   }
 
   void _changeRange(int newRange) {
+    if (_selectedRange == newRange) return;
     setState(() {
       _selectedRange = newRange;
     });
@@ -60,6 +72,12 @@ class _HotStreaksTabState extends State<HotStreaksTab> {
   }
 
   void _openTeamProfile(TeamInsight insight) {
+    // Безпечний пошук даних команди для усунення TypeError
+    final teamData = _allTeams.cast<Map<String, dynamic>>().firstWhere(
+          (t) => t['id'] == insight.teamId,
+      orElse: () => <String, dynamic>{},
+    );
+
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -70,8 +88,8 @@ class _HotStreaksTabState extends State<HotStreaksTab> {
             teamName: insight.teamName,
             teamAbbrev: insight.teamAbbrev,
             teamLogo: insight.teamLogo,
-            divisionName: '',
-            conferenceName: '',
+            divisionName: teamData['division']?.toString() ?? teamData['divisionName']?.toString() ?? '',
+            conferenceName: teamData['conference']?.toString() ?? teamData['conferenceName']?.toString() ?? '',
           ),
         ),
       ),
