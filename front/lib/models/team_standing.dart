@@ -139,7 +139,7 @@ class TeamStanding {
     }
 
     return TeamStanding(
-      teamId: teamId,  // Тепер буде правильний ID!
+      teamId: teamId,
       teamName: teamName,
       teamAbbrev: teamAbbrev,
       teamLogo: teamLogo,
@@ -173,6 +173,46 @@ class TeamStanding {
     );
   }
 
+  /// ✅ ДОДАНО: Конвертувати в JSON для кешування
+  Map<String, dynamic> toJson() {
+    return {
+      'teamId': teamId,
+      'teamName': teamName,
+      'teamAbbrev': teamAbbrev,
+      'teamLogo': teamLogo,
+      'divisionId': divisionId,
+      'divisionName': divisionName,
+      'conferenceId': conferenceId,
+      'conferenceName': conferenceName,
+      'gamesPlayed': gamesPlayed,
+      'wins': wins,
+      'losses': losses,
+      'otLosses': overtimeLosses,
+      'points': points,
+      'goalFor': goalsFor,
+      'goalsAgainst': goalsAgainst,
+      'goalDifferential': goalDifferential,
+      'regulationWins': regulationWins,
+      'last10': last10,
+      'streak': streak,
+      'homeWins': homeWins,
+      'homeLosses': homeLosses,
+      'homeOtLosses': homeOT,
+      'roadWins': awayWins,
+      'roadLosses': awayLosses,
+      'roadOtLosses': awayOT,
+      'divisionSequence': divisionRank,
+      'conferenceSequence': conferenceRank,
+      'leagueSequence': leagueRank,
+      'wildcardSequence': wildCardRank,
+      'clinchIndicator': clinchIndicator,
+      'playoffStatus': playoffStatus,
+      // Додаємо поля для зворотної сумісності з fromJson
+      'streakCode': streak.isNotEmpty ? streak.substring(0, 1) : '',
+      'streakCount': streak.length > 1 ? int.tryParse(streak.substring(1)) ?? 0 : 0,
+    };
+  }
+
   /// Визначити статус плей-офф
   static String? _determinePlayoffStatus(Map<String, dynamic> json) {
     // Якщо є wildcardSequence - це wildcard
@@ -201,4 +241,3 @@ class TeamStanding {
     return 'TeamStanding(${teamAbbrev}: $points pts, $wins-$losses-$overtimeLosses)';
   }
 }
-

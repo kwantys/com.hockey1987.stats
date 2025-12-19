@@ -10,6 +10,7 @@ import '../services/favorites_service.dart';
 import 'game_hub_screen.dart';
 import 'outcome_studio_screen.dart';
 import 'player_insight_screen.dart';
+import '../services/team_cache_service.dart';
 
 /// Team Profile Screen - профіль команди з roster та schedule
 class TeamProfileScreen extends StatefulWidget {
@@ -64,24 +65,57 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
     });
 
     try {
+      // ✅ КРОК 1: Спробувати завантажити з кешу
+      print('🔍 Checking cache for team ${widget.teamId}...');
+      final cachedData = await TeamCacheService.getCachedTeamData(widget.teamId);
+
+      if (cachedData != null) {
+        // Кеш знайдено - використовуємо його
+        print('✅ Using cached data for team ${widget.teamId}');
+
+        // Завантажуємо team info якщо немає
+        if (_team == null) {
+          _team = Team.fromJson(cachedData['teamInfo']);
+          print('Team loaded from cache: ${_team!.teamName}');
+        }
+
+        // Парсимо дані з кешу
+        final roster = _parseRosterData(cachedData['roster']);
+        final schedule = _parseScheduleData(cachedData['schedule']);
+
+        setState(() {
+          _roster = roster;
+          _schedule = schedule;
+          _isLoading = false;
+        });
+
+        print('✅ Loaded ${roster.length} players and ${schedule.length} games from cache');
+        return; // Виходимо - дані завантажені з кешу
+      }
+
+      // ✅ КРОК 2: Кешу немає або застарілий - завантажуємо з API
+      print('📡 No valid cache, loading from API...');
+
       Map<String, dynamic>? teamInfoData;
 
+      // Завантажити team info, якщо ще немає
       if (_team == null) {
         print('Loading team info for team ${widget.teamId}');
         teamInfoData = await _apiService.getTeamInfo(widget.teamId);
         _team = Team.fromJson(teamInfoData);
         print('Team loaded: ${_team!.teamName}');
-        print('Team logo URL: ${_team!.teamLogo}');
       }
 
+      // Завантажити roster
       print('Loading roster...');
       final rosterData = await _apiService.getTeamRoster(
-          widget.teamId,
-          teamAbbrev: _team?.teamAbbrev
+        widget.teamId,
+        teamAbbrev: _team?.teamAbbrev,
       );
 
       final roster = _parseRosterData(rosterData);
 
+      // Завантажити schedule
       print('Loading schedule...');
       final scheduleData = await _apiService.getTeamSchedule(widget.teamId);
 
@@ -93,22 +127,55 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
         _isLoading = false;
       });
 
-      print('✅ Loaded ${roster.length} players and ${schedule.length} games');
+      print('✅ Loaded ${roster.length} players and ${schedule.length} games from API');
 
-      _saveToCache(teamInfoData, rosterData, scheduleData);
+      // ✅ КРОК 3: Зберігаємо в кеш для наступного разу
+      await TeamCacheService.cacheTeamData(
+        teamId: widget.teamId,
+        teamInfo: teamInfoData ?? {},
+        roster: rosterData,
+        schedule: scheduleData,
+      );
 
     } catch (e) {
       print('❌ Error loading team data: $e');
 
-      print('🔄 Attempting to load from cache...');
-      final loadedFromCache = await _loadFromCache();
+      // Спробувати завантажити застарілий кеш якщо є помилка з API
+      print('🔄 Attempting to load expired cache...');
+      final prefs = await SharedPreferences.getInstance();
+      bool hasData = false;
+
+      if (_team == null) {
+        final teamJson = prefs.getString('team_cache_info_${widget.teamId}');
+        if (teamJson != null) {
+          final teamData = json.decode(teamJson);
+          _team = Team.fromJson(teamData);
+          hasData = true;
+        }
+      } else {
+        hasData = true;
+      }
+
+      final rosterJson = prefs.getString('team_cache_roster_${widget.teamId}');
+      if (rosterJson != null) {
+        final rosterData = json.decode(rosterJson);
+        _roster = _parseRosterData(rosterData);
+        hasData = true;
+      }
+
+      final scheduleJson = prefs.getString('team_cache_schedule_${widget.teamId}');
+      if (scheduleJson != null) {
+        final scheduleData = json.decode(scheduleJson);
+        _schedule = _parseScheduleData(scheduleData);
+        hasData = true;
+      }
 
       if (mounted) {
         setState(() {
           _isLoading = false;
-          if (loadedFromCache) {
+          if (hasData) {
             _isOffline = true;
-            print('✅ Data restored from cache');
+            print('✅ Data restored from expired cache');
           } else {
             _errorMessage = 'Failed to load team data. Check internet connection.';
           }

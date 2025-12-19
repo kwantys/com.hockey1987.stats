@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:intl/intl.dart';
 import '../models/team_standing.dart';
-import '../models/team_models.dart'; // ДОДАНО
+import '../models/team_models.dart';
 import '../services/nhl_api_service.dart';
-import 'team_profile_screen.dart'; // ДОДАНО
+import '../services/standings_cache_service.dart'; // ← ДОДАНО
+import 'team_profile_screen.dart';
 
-/// Standings Screen - турнірні таблиці NHL
+/// Standings Screen - турнірні таблиці NHL з кешуванням
 class StandingsScreen extends StatefulWidget {
   const StandingsScreen({super.key});
 
@@ -20,6 +24,8 @@ class _StandingsScreenState extends State<StandingsScreen>
   List<TeamStanding> _allStandings = [];
   bool _isLoading = true;
   String? _errorMessage;
+  DateTime? _lastUpdateTime; // ← ДОДАНО
+  bool _isLoadingFromCache = false; // ← ДОДАНО
 
   @override
   void initState() {
@@ -34,27 +40,183 @@ class _StandingsScreenState extends State<StandingsScreen>
     super.dispose();
   }
 
+  /// ✅ ОНОВЛЕНИЙ МЕТОД з кешуванням
   Future<void> _loadStandings() async {
+    if (!mounted) return;
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
     try {
-      final standings = await _apiService.getStandings();
+      // КРОК 1: Спробувати завантажити з кешу
+      print('🔍 Checking standings cache...');
+      final cachedData = await StandingsCacheService.getCachedStandings();
 
+      if (cachedData != null) {
+        // Кеш знайдено - використовуємо його
+        print('✅ Using cached standings');
+
+        final lastUpdate = await StandingsCacheService.getLastUpdateTime();
+        final standings = _parseStandingsFromCache(cachedData);
+
+        if (mounted) {
+          setState(() {
+            _allStandings = standings;
+            _lastUpdateTime = lastUpdate;
+            _isLoading = false;
+            _isLoadingFromCache = true;
+          });
+        }
+
+        print('✅ Loaded ${standings.length} teams from cache');
+
+        // Опціонально: оновити у фоні якщо кеш старий
+        final cacheAge = await StandingsCacheService.getCacheAge();
+        if (cacheAge != null && cacheAge > Duration(hours: 3)) {
+          print('🔄 Cache is old, refreshing in background...');
+          _refreshStandingsInBackground();
+        }
+
+        return;
+      }
+
+      // КРОК 2: Кешу немає - завантажуємо з API
+      print('📡 No valid cache, loading from API...');
+      await _loadFromAPI();
+    } catch (e) {
+      print('❌ Error loading standings: $e');
+      await _loadExpiredCache();
+    }
+  }
+
+  /// Завантаження з API
+  Future<void> _loadFromAPI() async {
+    final standings = await _apiService.getStandings();
+
+    // Зберігаємо raw дані для кешу
+    final standingsData = {'standings': standings.map((t) => t.toJson()).toList()};
+
+    if (mounted) {
       setState(() {
         _allStandings = standings;
+        _lastUpdateTime = DateTime.now();
         _isLoading = false;
+        _isLoadingFromCache = false;
       });
+    }
 
-      print('Loaded ${standings.length} teams');
+    print('✅ Loaded ${standings.length} teams from API');
+
+    // Зберігаємо в кеш
+    await StandingsCacheService.cacheStandings(standingsData);
+  }
+
+  /// Фонове оновлення
+  Future<void> _refreshStandingsInBackground() async {
+    try {
+      await _loadFromAPI();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Standings updated'),
+            duration: Duration(seconds: 2),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
     } catch (e) {
-      print('Error loading standings: $e');
-      setState(() {
-        _errorMessage = 'Failed to load standings';
-        _isLoading = false;
-      });
+      print('⚠️ Background refresh failed: $e');
+      // Тихо ігноруємо помилку
+    }
+  }
+
+  /// Завантаження застарілого кешу (offline режим)
+  Future<void> _loadExpiredCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final standingsJson = prefs.getString('standings_cache_data');
+
+      if (standingsJson != null) {
+        final standingsData = json.decode(standingsJson);
+        final standings = _parseStandingsFromCache(standingsData);
+        final lastUpdate = await StandingsCacheService.getLastUpdateTime();
+
+        if (mounted) {
+          setState(() {
+            _allStandings = standings;
+            _lastUpdateTime = lastUpdate;
+            _isLoading = false;
+            _isLoadingFromCache = true;
+            _errorMessage = 'Showing cached data (offline mode)';
+          });
+        }
+
+        print('✅ Loaded expired cache (offline mode)');
+      } else {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+            _errorMessage = 'Failed to load standings. Check internet connection.';
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'Failed to load standings. Check internet connection.';
+        });
+      }
+    }
+  }
+
+  /// Парсинг standings з кешу
+  List<TeamStanding> _parseStandingsFromCache(Map<String, dynamic> cachedData) {
+    final standingsList = cachedData['standings'] as List? ?? [];
+    final List<TeamStanding> teams = [];
+
+    for (var teamData in standingsList) {
+      try {
+        teams.add(TeamStanding.fromJson(teamData));
+      } catch (e) {
+        print('Error parsing team: $e');
+      }
+    }
+
+    return teams;
+  }
+
+  /// Примусове оновлення
+  Future<void> _forceRefresh() async {
+    await StandingsCacheService.clearCache();
+    await _loadStandings();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Standings refreshed'),
+          duration: Duration(seconds: 2),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
+  }
+
+  /// Форматування часу оновлення
+  String _formatUpdateTime(DateTime time) {
+    final now = DateTime.now();
+    final diff = now.difference(time);
+
+    if (diff.inMinutes < 1) {
+      return 'just now';
+    } else if (diff.inMinutes < 60) {
+      return '${diff.inMinutes}min ago';
+    } else if (diff.inHours < 24) {
+      return '${diff.inHours}h ago';
+    } else {
+      return DateFormat('MMM d, HH:mm').format(time);
     }
   }
 
@@ -66,20 +228,35 @@ class _StandingsScreenState extends State<StandingsScreen>
         backgroundColor: const Color(0xFF8ACEF2),
         elevation: 0,
         automaticallyImplyLeading: false,
-        title: const Text(
-          'League Tables',
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF0F265C),
-            fontFamily: 'Lato',
-          ),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'League Tables',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF0F265C),
+                fontFamily: 'Lato',
+              ),
+            ),
+            // ✅ Індикатор останнього оновлення
+            if (_lastUpdateTime != null)
+              Text(
+                'Updated: ${_formatUpdateTime(_lastUpdateTime!)}',
+                style: const TextStyle(
+                  color: Color(0xFF0F265C),
+                  fontSize: 11,
+                  fontFamily: 'Lato',
+                ),
+              ),
+          ],
         ),
         actions: [
           IconButton(
-            onPressed: _loadStandings,
+            onPressed: _forceRefresh,
             icon: const Icon(Icons.refresh, color: Color(0xFF0F265C)),
-            tooltip: 'Refresh',
+            tooltip: 'Refresh standings',
           ),
         ],
         bottom: PreferredSize(
@@ -111,23 +288,59 @@ class _StandingsScreenState extends State<StandingsScreen>
           ),
         ),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _errorMessage != null
-          ? _buildErrorState()
-          : TabBarView(
-        controller: _tabController,
+      body: Column(
         children: [
-          _buildWildCardTab(),
-          _buildDivisionTab(),
-          _buildLeagueTab(),
+          // ✅ Банер для кешованих даних
+          if (_isLoadingFromCache && _lastUpdateTime != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              color: Colors.orange.shade100,
+              child: Row(
+                children: [
+                  const Icon(Icons.cached, size: 16, color: Colors.orange),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Showing cached data from ${_formatUpdateTime(_lastUpdateTime!)}',
+                      style: const TextStyle(fontSize: 12, color: Colors.orange),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _forceRefresh,
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      minimumSize: const Size(0, 30),
+                    ),
+                    child: const Text(
+                      'Refresh',
+                      style: TextStyle(fontSize: 12, color: Colors.orange),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+          // Контент
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _errorMessage != null && _allStandings.isEmpty
+                ? _buildErrorState()
+                : TabBarView(
+              controller: _tabController,
+              children: [
+                _buildWildCardTab(),
+                _buildDivisionTab(),
+                _buildLeagueTab(),
+              ],
+            ),
+          ),
         ],
       ),
     );
   }
 
   Widget _buildWildCardTab() {
-    // Розділити по конференціям
     final easternTeams = _allStandings
         .where((t) => t.conferenceName.toLowerCase().contains('eastern'))
         .toList();
@@ -135,12 +348,11 @@ class _StandingsScreenState extends State<StandingsScreen>
         .where((t) => t.conferenceName.toLowerCase().contains('western'))
         .toList();
 
-    // Сортувати по points, потім ROW, потім goal diff
     easternTeams.sort(_compareTeams);
     westernTeams.sort(_compareTeams);
 
     return RefreshIndicator(
-      onRefresh: _loadStandings,
+      onRefresh: _forceRefresh,
       color: const Color(0xFF0F265C),
       child: ListView(
         padding: const EdgeInsets.all(16),
@@ -162,25 +374,22 @@ class _StandingsScreenState extends State<StandingsScreen>
   }
 
   Widget _buildDivisionTab() {
-    // Групувати по дивізіонам
     final divisions = <String, List<TeamStanding>>{};
     for (var team in _allStandings) {
       divisions.putIfAbsent(team.divisionName, () => []).add(team);
     }
 
-    // Сортувати команди в кожному дивізіоні
     for (var teams in divisions.values) {
       teams.sort(_compareTeams);
     }
 
-    // Порядок дивізіонів: Atlantic, Metropolitan, Central, Pacific
     final divisionOrder = ['Atlantic', 'Metropolitan', 'Central', 'Pacific'];
     final sortedDivisions = divisionOrder
         .where((name) => divisions.containsKey(name))
         .toList();
 
     return RefreshIndicator(
-      onRefresh: _loadStandings,
+      onRefresh: _forceRefresh,
       color: const Color(0xFF0F265C),
       child: ListView(
         padding: const EdgeInsets.all(16),
@@ -201,12 +410,11 @@ class _StandingsScreenState extends State<StandingsScreen>
   }
 
   Widget _buildLeagueTab() {
-    // Сортувати всі команди
     final sortedTeams = List<TeamStanding>.from(_allStandings);
     sortedTeams.sort(_compareTeams);
 
     return RefreshIndicator(
-      onRefresh: _loadStandings,
+      onRefresh: _forceRefresh,
       color: const Color(0xFF0F265C),
       child: ListView(
         padding: const EdgeInsets.all(16),
@@ -261,17 +469,13 @@ class _StandingsScreenState extends State<StandingsScreen>
       ),
       child: Column(
         children: [
-          // Header
           _buildTableHeader(),
           const Divider(height: 1, color: Color(0xFFE8F4F8)),
-
-          // Rows
           ...teams.asMap().entries.map((entry) {
             final index = entry.key;
             final team = entry.value;
             final position = index + 1;
 
-            // Визначити статус для wild card
             String? status;
             if (showWildCard) {
               if (position <= 3) {
@@ -339,17 +543,11 @@ class _StandingsScreenState extends State<StandingsScreen>
       }) {
     return InkWell(
       onTap: () {
-        // DEBUG: Перевірити що передається
         print('=== TEAM TAP DEBUG ===');
         print('Team ID: ${team.teamId}');
         print('Team Name: ${team.teamName}');
-        print('Team Abbrev: ${team.teamAbbrev}');
-        print('Team Logo: ${team.teamLogo}');
-        print('Division: ${team.divisionName}');
-        print('Conference: ${team.conferenceName}');
         print('====================');
 
-        // Перевірка перед навігацією
         if (team.teamId == 0) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -359,7 +557,7 @@ class _StandingsScreenState extends State<StandingsScreen>
           );
           return;
         }
-        // Навігація до Team Profile
+
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -386,13 +584,11 @@ class _StandingsScreenState extends State<StandingsScreen>
         ),
         child: Row(
           children: [
-            // Position with indicator
             SizedBox(
               width: 40,
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Indicator
                   if (status != null)
                     Container(
                       width: 8,
@@ -403,7 +599,6 @@ class _StandingsScreenState extends State<StandingsScreen>
                         shape: BoxShape.circle,
                       ),
                     ),
-                  // Position number
                   Expanded(
                     child: Text(
                       position?.toString() ?? team.divisionRank?.toString() ?? '',
@@ -419,8 +614,6 @@ class _StandingsScreenState extends State<StandingsScreen>
                 ],
               ),
             ),
-
-            // Team name
             Expanded(
               flex: 3,
               child: Text(
@@ -433,17 +626,11 @@ class _StandingsScreenState extends State<StandingsScreen>
                 ),
               ),
             ),
-
-            // Stats
             _buildStatCell(team.gamesPlayed.toString(), width: 35),
             _buildStatCell(team.wins.toString(), width: 30),
             _buildStatCell(team.losses.toString(), width: 30),
             _buildStatCell(team.overtimeLosses.toString(), width: 35),
-            _buildStatCell(
-              team.points.toString(),
-              width: 40,
-              bold: true,
-            ),
+            _buildStatCell(team.points.toString(), width: 40, bold: true),
             _buildStatCell(team.goalsFor.toString(), width: 35),
             _buildStatCell(team.goalsAgainst.toString(), width: 35),
             _buildStatCell(
@@ -501,17 +688,12 @@ class _StandingsScreenState extends State<StandingsScreen>
   }
 
   int _compareTeams(TeamStanding a, TeamStanding b) {
-    // 1. По points (більше краще)
     if (a.points != b.points) {
       return b.points.compareTo(a.points);
     }
-
-    // 2. По ROW (більше краще)
     if (a.regulationWins != b.regulationWins) {
       return b.regulationWins.compareTo(a.regulationWins);
     }
-
-    // 3. По goal differential (більше краще)
     return b.goalDifferential.compareTo(a.goalDifferential);
   }
 
@@ -578,7 +760,7 @@ class _StandingsScreenState extends State<StandingsScreen>
             ),
             const SizedBox(height: 16),
             ElevatedButton(
-              onPressed: _loadStandings,
+              onPressed: _forceRefresh,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF0F265C),
               ),
