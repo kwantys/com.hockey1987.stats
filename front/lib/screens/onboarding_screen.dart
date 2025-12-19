@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../models/user_preferences.dart';
 import '../services/preferences_service.dart';
+import '../services/notification_permission_service.dart';
 import '../widgets/main_navigation.dart';
-import '../shared/services/logger.dart'; // Додано логер згідно з гайдом
+import '../widgets/notification_permission_dialogs.dart';
+import '../shared/services/logger.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
@@ -43,75 +46,62 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     }
   }
 
-  // ВІКНО ПОЯСНЕННЯ ДОСТУПУ (Стилізоване під додаток)
-  Future<void> _showPermissionExplanation() async {
-    return showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        backgroundColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Icon(Icons.notifications_active, size: 48, color: Color(0xFF0F265C)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'Stay in the Game',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF0F265C),
-                fontFamily: 'Lato',
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'RinkSync needs notification access to send you real-time goal alerts, game starts, and final scores for your favorite teams.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade700,
-                fontFamily: 'Lato',
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () => Navigator.pop(context),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF0F265C),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              child: const Text(
-                'I Understand',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
+  /// Handle notification permission request flow.
+  /// Returns true if permission was granted, false otherwise.
+  Future<bool> _requestNotificationPermission() async {
+    // Show rationale dialog first
+    final userChoice = await showNotificationRationale(context);
+
+    if (userChoice != true) {
+      // User chose "Not Now" or dismissed
+      AppLogger.i('User declined notification permission in rationale');
+      return false;
+    }
+
+    // User chose "Allow" - request actual system permission
+    final status = await NotificationPermissionService.requestPermission();
+
+    if (status.isGranted) {
+      AppLogger.i('Notification permission granted');
+      return true;
+    }
+
+    if (status.isPermanentlyDenied) {
+      // Show dialog to open settings
+      AppLogger.w('Notification permission permanently denied');
+      if (mounted) {
+        await showPermanentlyDeniedDialog(context);
+      }
+      return false;
+    }
+
+    // Permission denied but not permanently
+    AppLogger.i('Notification permission denied');
+    return false;
   }
 
   Future<void> _completeOnboarding({bool useDefaults = false}) async {
-    // Якщо користувач увімкнув сповіщення, показуємо пояснення перед завершенням
+    bool goalAlertsEnabled = useDefaults ? true : _goalAlertsEnabled;
+
+    // If user enabled goal alerts, request permission
     if (!useDefaults && _goalAlertsEnabled) {
-      await _showPermissionExplanation();
+      final permissionGranted = await _requestNotificationPermission();
+      // If permission not granted, disable goal alerts
+      if (!permissionGranted) {
+        goalAlertsEnabled = false;
+      }
     }
 
-    // Зберігаємо налаштування (ВИПРАВЛЕНО: назва параметра goalAlerts)
+    // Save preferences
     final preferences = UserPreferences(
       isFirstLaunch: false,
       defaultGameDay: useDefaults ? 'today' : _selectedGameDay,
-      goalAlerts: useDefaults ? true : _goalAlertsEnabled, // Виправлено помилку іменування
+      goalAlerts: goalAlertsEnabled,
       homeFocus: useDefaults ? 'games' : _selectedHomeFocus,
     );
 
     await _preferencesService.savePreferences(preferences);
-    AppLogger.i('Onboarding completed. Settings: $preferences'); // Логування згідно з гайдом
+    AppLogger.i('Onboarding completed. Settings: $preferences');
 
     if (mounted) {
       Navigator.pushReplacement(

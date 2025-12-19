@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../services/preferences_service.dart';
+import '../services/notification_permission_service.dart';
 import '../models/user_preferences.dart';
-import '../shared/services/logger.dart'; //
+import '../widgets/notification_permission_dialogs.dart';
+import '../shared/services/logger.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -10,11 +13,13 @@ class SettingsScreen extends StatefulWidget {
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+class _SettingsScreenState extends State<SettingsScreen>
+    with WidgetsBindingObserver {
   final PreferencesService _prefsService = PreferencesService();
 
   UserPreferences _prefs = const UserPreferences();
   bool _isLoading = true;
+  bool _waitingForSettingsReturn = false;
 
   final Color _textColor = const Color(0xFF0F265C);
   final Color _headerColor = const Color(0xFF8ACEF2);
@@ -23,7 +28,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadSettings();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _waitingForSettingsReturn) {
+      _waitingForSettingsReturn = false;
+      _recheckNotificationPermission();
+    }
+  }
+
+  Future<void> _recheckNotificationPermission() async {
+    final isGranted = await NotificationPermissionService.isGranted();
+    AppLogger.d('Re-checking notification permission: granted=$isGranted');
+
+    if (!isGranted && (_prefs.goalAlerts || _prefs.finalScoreAlerts)) {
+      // Permission was revoked but toggles are ON - disable them
+      final newPrefs = _prefs.copyWith(
+        goalAlerts: false,
+        finalScoreAlerts: false,
+      );
+      setState(() => _prefs = newPrefs);
+      await _prefsService.savePreferences(newPrefs);
+      AppLogger.w('Notification permission revoked - disabled notification toggles');
+    }
   }
 
   Future<void> _loadSettings() async {
@@ -41,8 +77,71 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _updateSetting(UserPreferences newPrefs, String settingName, dynamic value) async {
     setState(() => _prefs = newPrefs);
     await _prefsService.savePreferences(newPrefs);
-    // Вимога п. 11 гайду: кожна зміна логується через AppLogger
-    AppLogger.i('User preference updated: $settingName = $value'); //
+    AppLogger.i('User preference updated: $settingName = $value');
+  }
+
+  /// Handle notification toggle change with permission check.
+  /// Only used for goalAlerts and finalScoreAlerts toggles.
+  Future<void> _handleNotificationToggle(String settingName, bool newValue) async {
+    // If turning OFF, no permission check needed
+    if (!newValue) {
+      final newPrefs = settingName == 'goalAlerts'
+          ? _prefs.copyWith(goalAlerts: false)
+          : _prefs.copyWith(finalScoreAlerts: false);
+      await _updateSetting(newPrefs, settingName, false);
+      return;
+    }
+
+    // Turning ON - check if permission is already granted
+    final status = await NotificationPermissionService.checkStatus();
+
+    if (status.isGranted) {
+      // Permission already granted - enable toggle
+      final newPrefs = settingName == 'goalAlerts'
+          ? _prefs.copyWith(goalAlerts: true)
+          : _prefs.copyWith(finalScoreAlerts: true);
+      await _updateSetting(newPrefs, settingName, true);
+      return;
+    }
+
+    if (status.isPermanentlyDenied) {
+      // Permanently denied - show settings dialog
+      AppLogger.w('Notification permission permanently denied');
+      if (mounted) {
+        final openedSettings = await showPermanentlyDeniedDialog(context);
+        if (openedSettings) {
+          _waitingForSettingsReturn = true;
+        }
+      }
+      return;
+    }
+
+    // Permission not yet requested or denied - show rationale and request
+    if (mounted) {
+      final userChoice = await showNotificationRationale(context);
+      if (userChoice != true) {
+        // User chose "Not Now"
+        AppLogger.i('User declined notification permission in settings');
+        return;
+      }
+
+      // Request permission
+      final result = await NotificationPermissionService.requestPermission();
+
+      if (result.isGranted) {
+        // Permission granted - enable toggle
+        final newPrefs = settingName == 'goalAlerts'
+            ? _prefs.copyWith(goalAlerts: true)
+            : _prefs.copyWith(finalScoreAlerts: true);
+        await _updateSetting(newPrefs, settingName, true);
+      } else if (result.isPermanentlyDenied && mounted) {
+        // Permanently denied after request - show settings dialog
+        final openedSettings = await showPermanentlyDeniedDialog(context);
+        if (openedSettings) {
+          _waitingForSettingsReturn = true;
+        }
+      }
+    }
   }
 
   @override
@@ -107,19 +206,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
       elevation: 0,
       child: Column(
         children: [
-          // 1. Goal Alerts
+          // 1. Goal Alerts - requires permission check
           _buildToggleTile('Goal alerts', _prefs.goalAlerts, (v) {
-            _updateSetting(_prefs.copyWith(goalAlerts: v), 'goalAlerts', v);
+            _handleNotificationToggle('goalAlerts', v);
           }),
           const Divider(height: 1),
 
-          // 2. Final Score Alerts (підключено до моделі)
+          // 2. Final Score Alerts - requires permission check
           _buildToggleTile('Final score alerts', _prefs.finalScoreAlerts, (v) {
-            _updateSetting(_prefs.copyWith(finalScoreAlerts: v), 'finalScoreAlerts', v);
+            _handleNotificationToggle('finalScoreAlerts', v);
           }),
           const Divider(height: 1),
 
-          // 3. Prediction Reminders (підключено до моделі)
+          // 3. Prediction Reminders - no permission check (no background notifications)
           _buildToggleTile('Prediction reminders', _prefs.predictionReminders, (v) {
             _updateSetting(_prefs.copyWith(predictionReminders: v), 'predictionReminders', v);
           }),
