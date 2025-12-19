@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart'; // ← ДОДАНО
 import '../../services/insights_service.dart';
-import '../../services/nhl_api_service.dart'; // Додано для отримання інфо про дивізіони
+import '../../services/nhl_api_service.dart';
 import '../../models/team_insight.dart';
 import '../team_profile_screen.dart';
 import '../../models/team_models.dart';
@@ -17,9 +18,9 @@ class _HotStreaksTabState extends State<HotStreaksTab> {
   final InsightsService _insightsService = InsightsService();
   final NHLApiService _apiService = NHLApiService();
 
-  int _selectedRange = 10; // 5, 10, 20
+  int _selectedRange = 10;
   List<TeamInsight> _insights = [];
-  List<Map<String, dynamic>> _allTeams = []; // Для отримання дивізіонів
+  List<Map<String, dynamic>> _allTeams = [];
   bool _isLoading = true;
 
   @override
@@ -33,11 +34,9 @@ class _HotStreaksTabState extends State<HotStreaksTab> {
     setState(() => _isLoading = true);
 
     try {
-      // Завантажуємо дані команд паралельно з інсайтами
       final teams = await _apiService.getAllTeams();
       final insights = await _insightsService.getHotStreaks(gamesRange: _selectedRange);
 
-      // Сортувати по win rate (спадання)
       insights.sort((a, b) {
         final aTotal = (a.wins + a.losses + a.otLosses);
         final bTotal = (b.wins + b.losses + b.otLosses);
@@ -72,7 +71,6 @@ class _HotStreaksTabState extends State<HotStreaksTab> {
   }
 
   void _openTeamProfile(TeamInsight insight) {
-    // Безпечний пошук даних команди для усунення TypeError
     final teamData = _allTeams.cast<Map<String, dynamic>>().firstWhere(
           (t) => t['id'] == insight.teamId,
       orElse: () => <String, dynamic>{},
@@ -100,10 +98,7 @@ class _HotStreaksTabState extends State<HotStreaksTab> {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        // Фільтр діапазону
         _buildRangeFilter(),
-
-        // Список команд
         Expanded(
           child: _isLoading
               ? const Center(child: CircularProgressIndicator())
@@ -182,7 +177,7 @@ class _HotStreaksTabState extends State<HotStreaksTab> {
           padding: const EdgeInsets.all(16),
           child: Row(
             children: [
-              // Team logo
+              // ✅ ВИПРАВЛЕННЯ: Team logo з підтримкою SVG і PNG
               Container(
                 width: 50,
                 height: 50,
@@ -190,12 +185,7 @@ class _HotStreaksTabState extends State<HotStreaksTab> {
                   color: const Color(0xFFE8F4F8),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: insight.teamLogo != null
-                    ? Image.network(
-                  insight.teamLogo!,
-                  errorBuilder: (_, __, ___) => _buildLogoFallback(),
-                )
-                    : _buildLogoFallback(),
+                child: _buildTeamLogo(insight.teamLogo),
               ),
 
               const SizedBox(width: 12),
@@ -276,6 +266,51 @@ class _HotStreaksTabState extends State<HotStreaksTab> {
         ),
       ),
     );
+  }
+
+  // ✅ НОВИЙ МЕТОД: Відображення логотипу з підтримкою SVG і PNG
+  Widget _buildTeamLogo(String? logoUrl) {
+    if (logoUrl == null || logoUrl.isEmpty) {
+      return _buildLogoFallback();
+    }
+
+    // Очищаємо URL від query параметрів
+    String cleanUrl = logoUrl;
+    if (cleanUrl.contains('?')) {
+      cleanUrl = cleanUrl.split('?').first;
+    }
+
+    // Визначаємо формат
+    final isSVG = cleanUrl.toLowerCase().endsWith('.svg');
+    final isPNG = cleanUrl.toLowerCase().endsWith('.png');
+
+    if (isSVG) {
+      return Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: SvgPicture.network(
+          cleanUrl,
+          fit: BoxFit.contain,
+          placeholderBuilder: (context) => const Center(
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      );
+    } else if (isPNG) {
+      return Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: Image.network(
+          cleanUrl,
+          fit: BoxFit.contain,
+          loadingBuilder: (context, child, loadingProgress) {
+            if (loadingProgress == null) return child;
+            return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+          },
+          errorBuilder: (_, __, ___) => _buildLogoFallback(),
+        ),
+      );
+    }
+
+    return _buildLogoFallback();
   }
 
   Widget _buildStreakChip(String label) {

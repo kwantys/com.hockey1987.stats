@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart'; // ← ДОДАНО
 import 'package:intl/intl.dart';
 import '../models/team_models.dart';
 import '../models/game.dart';
-import '../models/user_preferences.dart'; // ДОДАНО
+import '../models/user_preferences.dart';
 import '../services/nhl_api_service.dart';
 import '../services/favorites_service.dart';
-import '../services/preferences_service.dart'; // ДОДАНО
-import '../services/notification_service.dart'; // ДОДАНО
-import '../shared/services/logger.dart'; // ДОДАНО
+import '../services/preferences_service.dart';
+import '../services/notification_service.dart';
+import '../shared/services/logger.dart';
 import 'team_profile_screen.dart';
 import 'game_hub_screen.dart';
 import 'player_insight_screen.dart';
@@ -24,13 +25,13 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
   late TabController _tabController;
   final NHLApiService _apiService = NHLApiService();
   final FavoritesService _favoritesService = FavoritesService();
-  final PreferencesService _preferencesService = PreferencesService(); // ДОДАНО
+  final PreferencesService _preferencesService = PreferencesService();
 
   // Data
   List<Team> _favoriteTeams = [];
   List<Game> _favoriteGames = [];
   List<Map<String, dynamic>> _favoritePlayersData = [];
-  UserPreferences _userPrefs = const UserPreferences(); // ДОДАНО
+  UserPreferences _userPrefs = const UserPreferences();
 
   bool _isLoading = true;
   List<int> _gamesWithAlerts = [];
@@ -74,13 +75,11 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
       final favGamesIds = await _favoritesService.getFavoriteGames();
       final favPlayersIds = await _favoritesService.getFavoritePlayers();
       final alerts = await _favoritesService.getGamesWithAlerts();
-      final prefs = await _preferencesService.loadPreferences(); // ДОДАНО
+      final prefs = await _preferencesService.loadPreferences();
 
       // --- TEAMS ---
       final teams = <Team>[];
       for (var id in favTeamsIds) {
-        // Додаємо перевірку: реальні ID команд NHL зазвичай не перевищують 1000.
-        // Також ігноруємо нульовий ID.
         if (id <= 0 || id > 1000) {
           AppLogger.d('Skipping suspicious team ID: $id');
           continue;
@@ -89,20 +88,32 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
         try {
           final data = await _apiService.getTeamInfo(id);
 
-          // Перевіряємо чи API взагалі повернуло потрібні дані, перш ніж працювати з ними
           if (data.isEmpty) continue;
 
-          if (data['teamLogo'] == null) {
-            final abbrevData = data['teamAbbrev'];
-            final abbrev = abbrevData is Map ? abbrevData['default'] : abbrevData;
-            if (abbrev != null) {
-              data['teamLogo'] = 'https://assets.nhle.com/logos/nhl/svg/${abbrev}_light.svg';
-            }
+          // ✅ ВИПРАВЛЕННЯ: Додаємо fallback для логотипу
+          String? abbrev;
+          final abbrevData = data['teamAbbrev'];
+          abbrev = abbrevData is Map ? abbrevData['default'] : abbrevData?.toString();
+
+          print('📊 Team data for ID $id:');
+          print('   Name: ${data['teamName']}');
+          print('   Abbrev: $abbrev');
+          print('   Logo (before): ${data['teamLogo']}');
+
+          if (data['teamLogo'] == null && abbrev != null && abbrev.isNotEmpty) {
+            data['teamLogo'] = 'https://assets.nhle.com/logos/nhl/svg/${abbrev}_light.svg';
           }
+
+          // Очищаємо URL від query параметрів
+          if (data['teamLogo'] != null && data['teamLogo'].toString().contains('?')) {
+            data['teamLogo'] = data['teamLogo'].toString().split('?').first;
+          }
+
+          print('   Logo (after): ${data['teamLogo']}');
+
           teams.add(Team.fromJson(data));
+          AppLogger.d('✅ Loaded team ${data['teamName']} with logo: ${data['teamLogo']}');
         } catch (e) {
-          // Змінюємо .e (error) на .w (warning), щоб не засмічувати критичні логи,
-          // бо це проблема зовнішніх даних API, а не вашого коду.
           AppLogger.w('Could not load team info for ID $id: $e');
         }
       }
@@ -119,7 +130,7 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
       }
       games.sort((a, b) => b.dateTime.compareTo(a.dateTime));
 
-      // --- PLAYERS (без змін) ---
+      // --- PLAYERS ---
       final players = <Map<String, dynamic>>[];
       for (var id in favPlayersIds) {
         try {
@@ -137,7 +148,7 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
           _favoriteGames = games;
           _favoritePlayersData = players;
           _gamesWithAlerts = alerts;
-          _userPrefs = prefs; // ДОДАНО
+          _userPrefs = prefs;
           _isLoading = false;
         });
       }
@@ -149,7 +160,6 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
 
   // --- ACTIONS ---
 
-  // ІНТЕГРАЦІЯ НОТИФІКАЦІЙ У MY RINK
   Future<void> _toggleGameAlert(Game game) async {
     try {
       await _favoritesService.toggleAlertsForGame(game.gameId);
@@ -160,14 +170,12 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
       if (isEnabledNow) {
         AppLogger.i('💡 Scheduling alerts from MyRink for: ${game.gameId}');
 
-        // 1. Початок матчу
         await NotificationService.scheduleMatchAlert(
           gameId: game.gameId,
           teamNames: '${game.awayTeamName} @ ${game.homeTeamName}',
           startTime: game.dateTime,
         );
 
-        // 2. Фінальний результат (якщо увімкнено)
         if (_userPrefs.finalScoreAlerts) {
           await NotificationService.scheduleMatchAlert(
             gameId: game.gameId + 1000000,
@@ -201,9 +209,6 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
   Future<void> _removePlayer(int playerId) async {
     await _favoritesService.toggleFavoritePlayer(playerId);
   }
-
-  // --- UI BUILDERS (БЕЗ ЗМІН) ---
-  // ... (getPlayerName, build, buildTeamsTab) ...
 
   String _getPlayerName(Map<String, dynamic> data) {
     String extract(dynamic val) {
@@ -295,6 +300,14 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
       itemCount: _favoriteTeams.length,
       itemBuilder: (context, index) {
         final team = _favoriteTeams[index];
+
+        // ✅ ВИПРАВЛЕННЯ: Очищаємо URL від query параметрів
+        String? cleanLogo = team.teamLogo;
+        if (cleanLogo != null && cleanLogo.contains('?')) {
+          cleanLogo = cleanLogo.split('?').first;
+          print('🧹 Team logo cleaned: ${team.teamLogo} -> $cleanLogo');
+        }
+
         return Card(
           elevation: 2,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -308,14 +321,9 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
+                  // ✅ ВИПРАВЛЕННЯ: Підтримка як SVG так і PNG
                   Expanded(
-                    child: team.teamLogo != null
-                        ? Image.network(
-                      team.teamLogo!,
-                      fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) => const Icon(Icons.shield, size: 50, color: Colors.grey),
-                    )
-                        : const Icon(Icons.shield, size: 50, color: Colors.grey),
+                    child: _buildTeamLogoWidget(cleanLogo),
                   ),
                   const SizedBox(height: 8),
                   Text(
@@ -347,7 +355,54 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
     );
   }
 
-  // --- GAMES TAB (ОНОВЛЕНО) ---
+  // ✅ НОВИЙ МЕТОД: Визначає тип файлу та використовує відповідний віджет
+  Widget _buildTeamLogoWidget(String? logoUrl) {
+    print('🖼️ Building logo widget for: $logoUrl');
+
+    if (logoUrl == null || logoUrl.isEmpty) {
+      print('❌ Logo URL is null or empty');
+      return const Icon(Icons.shield, size: 50, color: Colors.grey);
+    }
+
+    // Перевіряємо розширення файлу
+    final isPNG = logoUrl.toLowerCase().endsWith('.png');
+    final isSVG = logoUrl.toLowerCase().endsWith('.svg');
+
+    print('   isPNG: $isPNG, isSVG: $isSVG');
+
+    if (isPNG) {
+      print('✅ Loading as PNG');
+      // PNG - використовуємо Image.network
+      return Image.network(
+        logoUrl,
+        fit: BoxFit.contain,
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) {
+            print('✅ PNG loaded successfully');
+            return child;
+          }
+          print('⏳ Loading PNG... ${loadingProgress.cumulativeBytesLoaded}/${loadingProgress.expectedTotalBytes}');
+          return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+        },
+        errorBuilder: (context, error, stackTrace) {
+          print('❌ PNG load error: $error');
+          return const Icon(Icons.shield, size: 50, color: Colors.grey);
+        },
+      );
+    } else if (isSVG) {
+      print('✅ Loading as SVG');
+      // SVG - використовуємо SvgPicture.network
+      return SvgPicture.network(
+        logoUrl,
+        fit: BoxFit.contain,
+        placeholderBuilder: (context) => const CircularProgressIndicator(strokeWidth: 2),
+      );
+    } else {
+      print('❌ Unknown format');
+      // Невідомий формат
+      return const Icon(Icons.shield, size: 50, color: Colors.grey);
+    }
+  }
 
   Widget _buildGamesTab() {
     if (_favoriteGames.isEmpty) {
@@ -409,7 +464,6 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
                   children: [
                     Row(
                       children: [
-                        // ВИКОРИСТОВУЄМО ОНОВЛЕНИЙ МЕТОД
                         Switch(
                           value: alertsEnabled,
                           onChanged: (val) => _toggleGameAlert(game),
@@ -436,27 +490,48 @@ class _MyRinkScreenState extends State<MyRinkScreen> with SingleTickerProviderSt
     );
   }
 
+  // ✅ ВИПРАВЛЕННЯ: Очищаємо URL від query параметрів
   Widget _buildTeamRow(String name, String? logo, int? score) {
+    // Видаляємо query параметри типу ?season=20252026
+    String? cleanLogo = logo;
+    if (logo != null && logo.contains('?')) {
+      cleanLogo = logo.split('?').first;
+      print('🧹 Cleaned: $logo -> $cleanLogo');
+    }
+
     return Column(
       children: [
-        if (logo != null)
-          Image.network(
-            logo,
+        if (cleanLogo != null && cleanLogo.isNotEmpty)
+          SvgPicture.network(
+            cleanLogo,
             width: 40,
             height: 40,
-            errorBuilder: (_, __, ___) => const Icon(Icons.sports_hockey, size: 40, color: Colors.grey),
+            placeholderBuilder: (context) => const SizedBox(
+              width: 40,
+              height: 40,
+              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+            ),
+            fit: BoxFit.contain,
           )
         else
           const Icon(Icons.sports_hockey, size: 40, color: Colors.grey),
         const SizedBox(height: 4),
-        Text(name, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
+        Text(
+          name,
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
         if (score != null)
-          Text(score.toString(), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          Text(
+            score.toString(),
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
       ],
     );
   }
 
-  // --- PLAYERS TAB (без змін) ---
   Widget _buildPlayersTab() {
     if (_favoritePlayersData.isEmpty) return _buildEmptyState('No players tracked yet.', null, null);
     return ListView.builder(

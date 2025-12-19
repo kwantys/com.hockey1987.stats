@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:intl/intl.dart';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -8,12 +9,12 @@ import '../services/nhl_api_service.dart';
 import '../services/favorites_service.dart';
 import 'game_hub_screen.dart';
 import 'outcome_studio_screen.dart';
-import 'player_insight_screen.dart'; // Додайте цей імпорт
+import 'player_insight_screen.dart';
 
 /// Team Profile Screen - профіль команди з roster та schedule
 class TeamProfileScreen extends StatefulWidget {
   final int teamId;
-  final Team? team; // Опціонально передати team якщо вже є
+  final Team? team;
 
   const TeamProfileScreen({
     super.key,
@@ -38,12 +39,13 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
   bool _isFavorite = false;
   bool _isOffline = false;
   String? _errorMessage;
+  bool _logoLoadError = false; // ← ДОДАНО для відстеження помилок завантаження лого
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    _team = widget.team; // Використати передану team якщо є
+    _team = widget.team;
     _loadTeamData();
     _checkFavorite();
   }
@@ -64,30 +66,25 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
     try {
       Map<String, dynamic>? teamInfoData;
 
-      // 1. Завантажити team info, якщо ще немає
       if (_team == null) {
         print('Loading team info for team ${widget.teamId}');
         teamInfoData = await _apiService.getTeamInfo(widget.teamId);
         _team = Team.fromJson(teamInfoData);
         print('Team loaded: ${_team!.teamName}');
+        print('Team logo URL: ${_team!.teamLogo}');
       }
 
-      // 2. Завантажити roster
       print('Loading roster...');
-      // Використовуємо teamAbbrev для оптимізації
       final rosterData = await _apiService.getTeamRoster(
           widget.teamId,
           teamAbbrev: _team?.teamAbbrev
       );
 
-      // Використовуємо хелпер для парсингу
       final roster = _parseRosterData(rosterData);
 
-      // 3. Завантажити schedule
       print('Loading schedule...');
       final scheduleData = await _apiService.getTeamSchedule(widget.teamId);
 
-      // Використовуємо хелпер для парсингу
       final schedule = _parseScheduleData(scheduleData);
 
       setState(() {
@@ -98,7 +95,6 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
 
       print('✅ Loaded ${roster.length} players and ${schedule.length} games');
 
-      // Зберігаємо у фоновому режимі, не чекаємо await
       _saveToCache(teamInfoData, rosterData, scheduleData);
 
     } catch (e) {
@@ -111,7 +107,7 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
         setState(() {
           _isLoading = false;
           if (loadedFromCache) {
-            _isOffline = true; // Показуємо банер "Offline"
+            _isOffline = true;
             print('✅ Data restored from cache');
           } else {
             _errorMessage = 'Failed to load team data. Check internet connection.';
@@ -121,7 +117,6 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
     }
   }
 
-  /// Парсинг складу команди
   List<Player> _parseRosterData(Map<String, dynamic> rosterData) {
     final forwards = rosterData['forwards'] as List? ?? [];
     final defensemen = rosterData['defensemen'] as List? ?? [];
@@ -131,7 +126,6 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
 
     final roster = <Player>[];
 
-    // Допоміжна функція для додавання
     void addPlayers(List list) {
       for (var json in list) {
         try {
@@ -149,7 +143,6 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
     return roster;
   }
 
-  /// Парсинг розкладу
   List<TeamScheduleGame> _parseScheduleData(Map<String, dynamic> scheduleData) {
     final games = scheduleData['games'] as List? ?? [];
     print('Schedule found: ${games.length} games');
@@ -165,17 +158,14 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
     return schedule;
   }
 
-  /// Збереження даних у кеш (SharedPreferences)
   Future<void> _saveToCache(Map<String, dynamic>? teamInfo, Map<String, dynamic> roster, Map<String, dynamic> schedule) async {
     try {
       final prefs = await SharedPreferences.getInstance();
 
-      // Кешуємо інфо про команду (якщо завантажували)
       if (teamInfo != null) {
         await prefs.setString('cache_team_info_${widget.teamId}', json.encode(teamInfo));
       }
 
-      // Кешуємо сирі JSON дані
       await prefs.setString('cache_team_roster_${widget.teamId}', json.encode(roster));
       await prefs.setString('cache_team_schedule_${widget.teamId}', json.encode(schedule));
 
@@ -185,13 +175,11 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
     }
   }
 
-  /// Завантаження даних з кешу
   Future<bool> _loadFromCache() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       bool hasData = false;
 
-      // 1. Відновлюємо команду
       if (_team == null) {
         final teamJson = prefs.getString('cache_team_info_${widget.teamId}');
         if (teamJson != null) {
@@ -200,10 +188,9 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
           hasData = true;
         }
       } else {
-        hasData = true; // Команда вже є
+        hasData = true;
       }
 
-      // 2. Відновлюємо склад
       final rosterJson = prefs.getString('cache_team_roster_${widget.teamId}');
       if (rosterJson != null) {
         final rosterData = json.decode(rosterJson);
@@ -211,7 +198,6 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
         hasData = true;
       }
 
-      // 3. Відновлюємо розклад
       final scheduleJson = prefs.getString('cache_team_schedule_${widget.teamId}');
       if (scheduleJson != null) {
         final scheduleData = json.decode(scheduleJson);
@@ -246,10 +232,8 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
       return;
     }
 
-    // Get next game from schedule
     final nextGame = _schedule.first;
 
-    // Create a Game object from TeamScheduleGame
     final game = Game(
       gameId: nextGame.gameId,
       status: nextGame.gameState,
@@ -261,7 +245,6 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
       awayTeamName: nextGame.isHomeGame ? nextGame.opponentName : (_team?.teamName ?? 'Away'),
     );
 
-    // Navigate to Outcome Studio with prefilled game
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -284,7 +267,6 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
 
   Future<void> _openGameHub(TeamScheduleGame scheduleGame) async {
     try {
-      // Показуємо спіннер
       ScaffoldMessenger.of(context).removeCurrentSnackBar();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -299,20 +281,16 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
               Text('Loading game details...'),
             ],
           ),
-          duration: const Duration(seconds: 1), // Трохи менша тривалість
+          duration: const Duration(seconds: 1),
         ),
       );
 
-      // ВИПРАВЛЕННЯ: Завантажуємо гру напряму за ID.
-      // Більше ніяких пошуків по датах та тижнях.
       final game = await _apiService.getGameById(scheduleGame.gameId);
 
       if (!mounted) return;
 
-      // Прибираємо SnackBar перед переходом
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
 
-      // Переходимо на екран гри
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -363,7 +341,6 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
       color: const Color(0xFF8ACEF2),
       child: Column(
         children: [
-          // Back button
           Row(
             children: [
               IconButton(
@@ -385,25 +362,10 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
 
           const SizedBox(height: 16),
 
-          // Team logo
-          Container(
-            width: 100,
-            height: 100,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-            ),
-            child: _team?.teamLogo != null
-                ? Image.network(
-              _team!.teamLogo!,
-              errorBuilder: (_, __, ___) => _buildLogoFallback(),
-            )
-                : _buildLogoFallback(),
-          ),
+          _buildTeamLogo(),
 
           const SizedBox(height: 16),
 
-          // Team name
           Text(
             _team?.teamName ?? 'Loading...',
             style: const TextStyle(
@@ -417,7 +379,6 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
 
           const SizedBox(height: 8),
 
-          // Division • Conference
           Text(
             '${_team?.divisionName ?? ''} Division • ${_team?.conferenceName ?? ''} Conference',
             style: const TextStyle(
@@ -432,11 +393,60 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
     );
   }
 
+  // ✅ ВИПРАВЛЕННЯ: Використовуємо правильні URL як на Game Hub і Teams Screen
+  Widget _buildTeamLogo() {
+    // Генеруємо правильний URL з абревіатури
+    final abbrev = _team?.teamAbbrev;
+
+    if (abbrev != null && abbrev.isNotEmpty) {
+      final logoUrl = 'https://assets.nhle.com/logos/nhl/svg/${abbrev}_light.svg';
+
+      return _buildLogoContainer(
+        ClipOval(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: SvgPicture.network(
+              logoUrl,
+              placeholderBuilder: (context) => Center(
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Color(0xFF0F265C),
+                ),
+              ),
+              fit: BoxFit.contain,
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Fallback якщо немає абревіатури
+    return _buildLogoContainer(_buildLogoFallback());
+  }
+
+  Widget _buildLogoContainer(Widget child) {
+    return Container(
+      width: 100,
+      height: 100,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        shape: BoxShape.circle,
+      ),
+      child: child,
+    );
+  }
+
   Widget _buildLogoFallback() {
-    return const Icon(
-      Icons.sports_hockey,
-      size: 50,
-      color: Color(0xFF6B9EB8),
+    return Center(
+      child: Text(
+        _team?.teamAbbrev ?? _team?.teamName?.substring(0, 1) ?? '?',
+        style: const TextStyle(
+          fontSize: 40,
+          fontWeight: FontWeight.bold,
+          color: Color(0xFF0F265C),
+          fontFamily: 'Lato',
+        ),
+      ),
     );
   }
 
@@ -505,13 +515,11 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
       return _buildEmptyState('No roster data available');
     }
 
-    // Розділити гравців по позиціям
     final forwards = _roster.where((p) =>
     p.position == 'C' || p.position == 'LW' || p.position == 'RW').toList();
     final defensemen = _roster.where((p) => p.position == 'D').toList();
     final goalies = _roster.where((p) => p.position == 'G').toList();
 
-    // Сортувати по номерах
     forwards.sort((a, b) => a.jerseyNumber.compareTo(b.jerseyNumber));
     defensemen.sort((a, b) => a.jerseyNumber.compareTo(b.jerseyNumber));
     goalies.sort((a, b) => a.jerseyNumber.compareTo(b.jerseyNumber));
@@ -544,7 +552,6 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Title
           Padding(
             padding: const EdgeInsets.all(12),
             child: Text(
@@ -560,12 +567,10 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
 
           const Divider(height: 1, color: Color(0xFFE8F4F8)),
 
-          // Header
           _buildRosterHeader(players.first.isGoalie),
 
           const Divider(height: 1, color: Color(0xFFE8F4F8)),
 
-          // Players
           ...players.map((player) => _buildPlayerRow(player)),
         ],
       ),
@@ -631,7 +636,6 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
         ),
         child: Row(
           children: [
-            // Jersey number
             SizedBox(
               width: 35,
               child: Text(
@@ -646,7 +650,6 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
               ),
             ),
 
-            // Player name
             Expanded(
               flex: 3,
               child: Text(
@@ -660,7 +663,6 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
               ),
             ),
 
-            // Position
             SizedBox(
               width: 40,
               child: Text(
@@ -674,7 +676,6 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
               ),
             ),
 
-            // Shoots
             SizedBox(
               width: 50,
               child: Text(
@@ -688,7 +689,6 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
               ),
             ),
 
-            // Stats
             if (!player.isGoalie) ...[
               _buildStatCell(player.gamesPlayed.toString(), width: 35),
               _buildStatCell(player.goals.toString(), width: 30),
@@ -759,7 +759,6 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Date
             Text(
               game.dateDisplay,
               style: const TextStyle(
@@ -772,7 +771,6 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
 
             const SizedBox(height: 8),
 
-            // Opponent
             Row(
               children: [
                 Text(
@@ -800,7 +798,6 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
 
             const SizedBox(height: 8),
 
-            // Time and Venue
             Row(
               children: [
                 const Icon(Icons.access_time, size: 14, color: Color(0xFF6B9EB8)),
@@ -842,7 +839,6 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Follow team button
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
@@ -877,7 +873,6 @@ class _TeamProfileScreenState extends State<TeamProfileScreen>
 
           const SizedBox(height: 12),
 
-          // Predict next matchup button
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(

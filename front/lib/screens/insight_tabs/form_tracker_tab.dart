@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart'; // ← ДОДАНО
 import 'dart:math' as math;
 import '../../services/insights_service.dart';
 import '../../services/nhl_api_service.dart';
@@ -71,7 +72,6 @@ class _FormTrackerTabState extends State<FormTrackerTab> {
     }
   }
 
-  /// Метод для очищення вибору (видалення з екрану)
   void _clearSelection() {
     setState(() {
       _selectedTeamId = null;
@@ -83,10 +83,7 @@ class _FormTrackerTabState extends State<FormTrackerTab> {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        // Team selector
         _buildTeamSelector(),
-
-        // Charts
         Expanded(
           child: _isLoadingStats
               ? const Center(child: CircularProgressIndicator())
@@ -159,11 +156,8 @@ class _FormTrackerTabState extends State<FormTrackerTab> {
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
-          // Team header
           _buildTeamHeader(),
           const SizedBox(height: 24),
-
-          // Points per game
           _buildChart(
             title: 'Points per game',
             child: _buildLineChart(
@@ -172,10 +166,7 @@ class _FormTrackerTabState extends State<FormTrackerTab> {
               color: const Color(0xFF3498DB),
             ),
           ),
-
           const SizedBox(height: 24),
-
-          // Goals for / against
           _buildChart(
             title: 'Goals for / Goals against',
             child: _buildDualLineChart(
@@ -183,10 +174,7 @@ class _FormTrackerTabState extends State<FormTrackerTab> {
               _teamInsight!.goalsAgainst.map((g) => g.toDouble()).toList(),
             ),
           ),
-
           const SizedBox(height: 24),
-
-          // Shots vs opponent shots
           _buildChart(
             title: 'Shots vs opponent shots',
             child: _buildBarChart(
@@ -200,7 +188,6 @@ class _FormTrackerTabState extends State<FormTrackerTab> {
   }
 
   Widget _buildTeamHeader() {
-    // ВИПРАВЛЕНО: Використовуємо .cast() для гарантії типу та обробляємо orElse як Map<String, dynamic>
     final Map<String, dynamic> teamData = _allTeams
         .cast<Map<String, dynamic>>()
         .firstWhere(
@@ -220,6 +207,7 @@ class _FormTrackerTabState extends State<FormTrackerTab> {
       ),
       child: Row(
         children: [
+          // ✅ ВИПРАВЛЕННЯ: Logo з підтримкою SVG і PNG
           Container(
             width: 50,
             height: 50,
@@ -227,15 +215,7 @@ class _FormTrackerTabState extends State<FormTrackerTab> {
               color: const Color(0xFFE8F4F8),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: _teamInsight!.teamLogo != null
-                ? Image.network(
-              _teamInsight!.teamLogo!,
-              errorBuilder: (_, __, ___) => const Icon(
-                Icons.sports_hockey,
-                color: Color(0xFF6B9EB8),
-              ),
-            )
-                : const Icon(Icons.sports_hockey, color: Color(0xFF6B9EB8)),
+            child: _buildTeamLogo(_teamInsight!.teamLogo),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -269,6 +249,51 @@ class _FormTrackerTabState extends State<FormTrackerTab> {
         ],
       ),
     );
+  }
+
+  // ✅ НОВИЙ МЕТОД: Відображення логотипу з підтримкою SVG і PNG
+  Widget _buildTeamLogo(String? logoUrl) {
+    if (logoUrl == null || logoUrl.isEmpty) {
+      return const Icon(Icons.sports_hockey, color: Color(0xFF6B9EB8));
+    }
+
+    // Очищаємо URL від query параметрів
+    String cleanUrl = logoUrl;
+    if (cleanUrl.contains('?')) {
+      cleanUrl = cleanUrl.split('?').first;
+    }
+
+    // Визначаємо формат
+    final isSVG = cleanUrl.toLowerCase().endsWith('.svg');
+    final isPNG = cleanUrl.toLowerCase().endsWith('.png');
+
+    if (isSVG) {
+      return Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: SvgPicture.network(
+          cleanUrl,
+          fit: BoxFit.contain,
+          placeholderBuilder: (context) => const Center(
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      );
+    } else if (isPNG) {
+      return Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: Image.network(
+          cleanUrl,
+          fit: BoxFit.contain,
+          loadingBuilder: (context, child, loadingProgress) {
+            if (loadingProgress == null) return child;
+            return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+          },
+          errorBuilder: (_, __, ___) => const Icon(Icons.sports_hockey, color: Color(0xFF6B9EB8)),
+        ),
+      );
+    }
+
+    return const Icon(Icons.sports_hockey, color: Color(0xFF6B9EB8));
   }
 
   Widget _buildChart({required String title, required Widget child}) {
@@ -418,7 +443,7 @@ class _FormTrackerTabState extends State<FormTrackerTab> {
   }
 }
 
-// === CUSTOM PAINTERS ===
+// === CUSTOM PAINTERS (без змін) ===
 
 class LineChartPainter extends CustomPainter {
   final List<double> data;

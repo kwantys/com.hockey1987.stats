@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import '../services/nhl_api_service.dart';
 import '../services/favorites_service.dart';
 import '../models/favorites_store.dart';
@@ -99,7 +100,7 @@ class _TeamsScreenState extends State<TeamsScreen> {
       backgroundColor: const Color(0xFFE8F4F8),
       appBar: AppBar(
         backgroundColor: const Color(0xFF8ACEF2),
-        automaticallyImplyLeading: false, // No back button - has bottom nav
+        automaticallyImplyLeading: false,
         title: const Text(
           'Teams',
           style: TextStyle(
@@ -124,7 +125,6 @@ class _TeamsScreenState extends State<TeamsScreen> {
       return _buildEmptyState();
     }
 
-    // Sort divisions alphabetically
     final sortedDivisions = _teamsByDivision.keys.toList()..sort();
 
     return RefreshIndicator(
@@ -167,6 +167,9 @@ class _TeamsScreenState extends State<TeamsScreen> {
   Widget _buildTeamTile(Map<String, dynamic> team) {
     final teamId = team['id'] as int;
     final teamName = team['name'] as String;
+    // ✅ ВИПРАВЛЕННЯ: Шукаємо 'abbreviation' замість 'abbrev'
+    final teamAbbrev = team['abbreviation'] as String? ?? team['abbrev'] as String?;
+    final teamLogo = team['logo'] as String?;
     final division = team['division'] as String?;
     final isFavorite = _favorites.isFavoriteTeam(teamId);
 
@@ -192,26 +195,7 @@ class _TeamsScreenState extends State<TeamsScreen> {
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                // Team logo placeholder
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE8F4F8),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Center(
-                    child: Text(
-                      teamName.substring(0, 1),
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF0F265C),
-                        fontFamily: 'Lato',
-                      ),
-                    ),
-                  ),
-                ),
+                _buildTeamLogo(teamLogo, teamAbbrev, teamName),
                 const SizedBox(width: 16),
                 Expanded(
                   child: Column(
@@ -238,7 +222,6 @@ class _TeamsScreenState extends State<TeamsScreen> {
                     ],
                   ),
                 ),
-                // Favorite button
                 IconButton(
                   onPressed: () => _toggleFavorite(teamId),
                   icon: Icon(
@@ -249,7 +232,6 @@ class _TeamsScreenState extends State<TeamsScreen> {
                   ),
                   tooltip: isFavorite ? 'Remove from favorites' : 'Add to favorites',
                 ),
-                // Open profile button
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
@@ -272,6 +254,59 @@ class _TeamsScreenState extends State<TeamsScreen> {
                 ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTeamLogo(String? logoUrl, String? abbrev, String teamName) {
+    // Генеруємо URL з абревіатури
+    String? finalLogoUrl;
+
+    if (abbrev != null && abbrev.isNotEmpty) {
+      finalLogoUrl = 'https://assets.nhle.com/logos/nhl/svg/${abbrev}_light.svg';
+    } else if (logoUrl != null && logoUrl.isNotEmpty) {
+      finalLogoUrl = logoUrl;
+    }
+
+    // Якщо є URL - показуємо SVG
+    if (finalLogoUrl != null && finalLogoUrl.isNotEmpty) {
+      return SvgPicture.network(
+        finalLogoUrl,
+        width: 40,
+        height: 40,
+        placeholderBuilder: (context) => Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: const Color(0xFFE8F4F8),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: const Center(
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+        fit: BoxFit.contain,
+      );
+    }
+
+    // Fallback - літера
+    return Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: const Color(0xFFE8F4F8),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Center(
+        child: Text(
+          teamName.substring(0, 1),
+          style: const TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF0F265C),
+            fontFamily: 'Lato',
           ),
         ),
       ),

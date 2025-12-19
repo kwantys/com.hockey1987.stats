@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart'; // ← ДОДАНО
 import '../../services/insights_service.dart';
 import '../../services/favorites_service.dart';
 import '../../services/nhl_api_service.dart';
@@ -34,10 +35,7 @@ class _FavoritesTrendsTabState extends State<FavoritesTrendsTab> {
     setState(() => _isLoading = true);
 
     try {
-      // Завантажуємо дані про всі команди для коректного відображення дивізіонів
       final teams = await _apiService.getAllTeams();
-
-      // Завантажити список ID обраних команд
       final favoriteIds = await _favoritesService.getFavoriteTeams();
 
       if (favoriteIds.isEmpty) {
@@ -51,7 +49,6 @@ class _FavoritesTrendsTabState extends State<FavoritesTrendsTab> {
         return;
       }
 
-      // Завантажити інсайти для обраних команд
       final insights = await _insightsService.getFavoritesInsights(favoriteIds);
 
       if (mounted) {
@@ -70,7 +67,6 @@ class _FavoritesTrendsTabState extends State<FavoritesTrendsTab> {
   }
 
   void _openTeamProfile(TeamInsight insight) {
-    // ВИПРАВЛЕНО: Використовуємо .cast() для усунення помилки TypeError
     final teamData = _allTeams.cast<Map<String, dynamic>>().firstWhere(
           (t) => t['id'] == insight.teamId,
       orElse: () => <String, dynamic>{},
@@ -121,7 +117,6 @@ class _FavoritesTrendsTabState extends State<FavoritesTrendsTab> {
   }
 
   Widget _buildFavoriteCard(TeamInsight insight) {
-    // ВИПРАВЛЕНО: Використовуємо .cast() для усунення помилки TypeError
     final teamData = _allTeams.cast<Map<String, dynamic>>().firstWhere(
           (t) => t['id'] == insight.teamId,
       orElse: () => <String, dynamic>{},
@@ -145,6 +140,7 @@ class _FavoritesTrendsTabState extends State<FavoritesTrendsTab> {
             children: [
               Row(
                 children: [
+                  // ✅ ВИПРАВЛЕННЯ: Logo з підтримкою SVG і PNG
                   Container(
                     width: 50,
                     height: 50,
@@ -152,12 +148,7 @@ class _FavoritesTrendsTabState extends State<FavoritesTrendsTab> {
                       color: const Color(0xFFE8F4F8),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: insight.teamLogo != null
-                        ? Image.network(
-                      insight.teamLogo!,
-                      errorBuilder: (_, __, ___) => _buildLogoFallback(),
-                    )
-                        : _buildLogoFallback(),
+                    child: _buildTeamLogo(insight.teamLogo),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -234,6 +225,51 @@ class _FavoritesTrendsTabState extends State<FavoritesTrendsTab> {
         ),
       ),
     );
+  }
+
+  // ✅ НОВИЙ МЕТОД: Відображення логотипу з підтримкою SVG і PNG
+  Widget _buildTeamLogo(String? logoUrl) {
+    if (logoUrl == null || logoUrl.isEmpty) {
+      return _buildLogoFallback();
+    }
+
+    // Очищаємо URL від query параметрів
+    String cleanUrl = logoUrl;
+    if (cleanUrl.contains('?')) {
+      cleanUrl = cleanUrl.split('?').first;
+    }
+
+    // Визначаємо формат
+    final isSVG = cleanUrl.toLowerCase().endsWith('.svg');
+    final isPNG = cleanUrl.toLowerCase().endsWith('.png');
+
+    if (isSVG) {
+      return Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: SvgPicture.network(
+          cleanUrl,
+          fit: BoxFit.contain,
+          placeholderBuilder: (context) => const Center(
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      );
+    } else if (isPNG) {
+      return Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: Image.network(
+          cleanUrl,
+          fit: BoxFit.contain,
+          loadingBuilder: (context, child, loadingProgress) {
+            if (loadingProgress == null) return child;
+            return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+          },
+          errorBuilder: (_, __, ___) => _buildLogoFallback(),
+        ),
+      );
+    }
+
+    return _buildLogoFallback();
   }
 
   Widget _buildStatItem({

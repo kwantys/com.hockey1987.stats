@@ -47,8 +47,8 @@ class Game {
   });
 
   /// Створити з JSON (NHL Stats API v1)
+  /// Створити з JSON (NHL Stats API v1)
   factory Game.fromJson(Map<String, dynamic> json) {
-    // NHL Stats API structure
     final gamePk = json['gamePk'] ?? 0;
     final gameDate = json['gameDate'] ?? '';
     final status = json['status'] ?? {};
@@ -60,11 +60,9 @@ class Game {
     final homeTeamData = homeTeam['team'] ?? {};
     final awayTeamData = awayTeam['team'] ?? {};
 
-    // Status info
     final statusCode = status['statusCode'] ?? '1';
     final detailedState = status['detailedState'] ?? 'Scheduled';
 
-    // Determine our simplified status
     String simplifiedStatus;
     if (statusCode == '2' || statusCode == '3' || detailedState.contains('Progress')) {
       simplifiedStatus = 'InProgress';
@@ -74,10 +72,23 @@ class Game {
       simplifiedStatus = 'Scheduled';
     }
 
-    // Live game info
     final linescore = json['linescore'] ?? {};
     final currentPeriod = linescore['currentPeriod'];
     final currentPeriodTimeRemaining = linescore['currentPeriodTimeRemaining'];
+
+    // ✅ ВИПРАВЛЕННЯ: Використовуємо PNG замість SVG
+    final homeAbbrev = homeTeamData['abbreviation']?.toString() ?? '';
+    final awayAbbrev = awayTeamData['abbreviation']?.toString() ?? '';
+
+    String? homeLogoUrl;
+    if (homeAbbrev.isNotEmpty) {
+      homeLogoUrl = 'https://assets.nhle.com/logos/nhl/png/${homeAbbrev}_dark.png';
+    }
+
+    String? awayLogoUrl;
+    if (awayAbbrev.isNotEmpty) {
+      awayLogoUrl = 'https://assets.nhle.com/logos/nhl/png/${awayAbbrev}_dark.png';
+    }
 
     return Game(
       gameId: gamePk,
@@ -92,12 +103,12 @@ class Game {
       homeTeamName: homeTeamData['name'] ?? 'Unknown',
       homeTeamCity: null,
       homeTeamScore: homeTeam['score'],
-      homeTeamLogo: null,
+      homeTeamLogo: homeLogoUrl,
       awayTeamId: awayTeamData['id'] ?? 0,
       awayTeamName: awayTeamData['name'] ?? 'Unknown',
       awayTeamCity: null,
       awayTeamScore: awayTeam['score'],
-      awayTeamLogo: null,
+      awayTeamLogo: awayLogoUrl,
       venue: json['venue']?['name'],
       isHomeGame: null,
     );
@@ -112,12 +123,24 @@ class Game {
     final homeTeam = json['homeTeam'] ?? {};
     final awayTeam = json['awayTeam'] ?? {};
 
-    // Використовуємо gameState напряму (не конвертуємо)
-    // FUT = Future/Upcoming
-    // LIVE/CRIT = Live
-    // FINAL/OFF = Final
+    // ✅ ВИПРАВЛЕННЯ: Використовуємо PNG замість SVG
+    final homeTeamAbbrev = homeTeam['abbrev']?.toString() ?? '';
+    final awayTeamAbbrev = awayTeam['abbrev']?.toString() ?? '';
 
-    // Period info
+    // Формуємо URL логотипів у PNG форматі (працює на Android)
+    String? homeTeamLogo = homeTeam['logo'];
+    if ((homeTeamLogo == null || homeTeamLogo.isEmpty) && homeTeamAbbrev.isNotEmpty) {
+      // Використовуємо темний варіант у великому розмірі (196x196)
+      homeTeamLogo = 'https://assets.nhle.com/logos/nhl/png/${homeTeamAbbrev}_dark.png';
+    }
+
+    String? awayTeamLogo = awayTeam['logo'];
+    if ((awayTeamLogo == null || awayTeamLogo.isEmpty) && awayTeamAbbrev.isNotEmpty) {
+      awayTeamLogo = 'https://assets.nhle.com/logos/nhl/png/${awayTeamAbbrev}_dark.png';
+    }
+
+    print('🏒 Game ${id}: Home logo: $homeTeamLogo, Away logo: $awayTeamLogo');
+
     final period = json['period'];
     final periodDescriptor = json['periodDescriptor'] ?? {};
     final periodType = periodDescriptor['periodType'];
@@ -125,7 +148,7 @@ class Game {
 
     return Game(
       gameId: id,
-      status: gameState, // Використовуємо gameState як є
+      status: gameState,
       statusText: gameState,
       dateTime: startTimeUTC.isNotEmpty
           ? DateTime.parse(startTimeUTC)
@@ -136,12 +159,12 @@ class Game {
       homeTeamName: homeTeam['name']?['default'] ?? homeTeam['abbrev'] ?? 'Unknown',
       homeTeamCity: null,
       homeTeamScore: homeTeam['score'],
-      homeTeamLogo: homeTeam['logo'],
+      homeTeamLogo: homeTeamLogo,
       awayTeamId: awayTeam['id'] ?? 0,
       awayTeamName: awayTeam['name']?['default'] ?? awayTeam['abbrev'] ?? 'Unknown',
       awayTeamCity: null,
       awayTeamScore: awayTeam['score'],
-      awayTeamLogo: awayTeam['logo'],
+      awayTeamLogo: awayTeamLogo,
       venue: json['venue']?['default'],
       isHomeGame: null,
     );

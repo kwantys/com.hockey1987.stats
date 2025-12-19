@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/svg.dart';
 import 'package:intl/intl.dart';
 import '../models/game.dart';
 import '../models/user_preferences.dart'; // ДОДАНО
@@ -257,12 +258,11 @@ class _GameHubScreenState extends State<GameHubScreen>
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              Expanded(
-                child: _buildTeam(
-                  widget.game.awayTeamName,
-                  widget.game.awayTeamLogo,
-                  false,
-                ),
+              // ✅ ВИПРАВЛЕННЯ: Передаємо рахунок замість bool
+              _buildTeam(
+                widget.game.awayTeamName,
+                widget.game.awayTeamLogo,
+                widget.game.awayTeamScore, // ← Було false, тепер score
               ),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -280,12 +280,11 @@ class _GameHubScreenState extends State<GameHubScreen>
                   ),
                 ),
               ),
-              Expanded(
-                child: _buildTeam(
-                  widget.game.homeTeamName,
-                  widget.game.homeTeamLogo,
-                  true,
-                ),
+              // ✅ ВИПРАВЛЕННЯ: Передаємо рахунок замість bool
+              _buildTeam(
+                widget.game.homeTeamName,
+                widget.game.homeTeamLogo,
+                widget.game.homeTeamScore, // ← Було true, тепер score
               ),
             ],
           ),
@@ -357,32 +356,60 @@ class _GameHubScreenState extends State<GameHubScreen>
     );
   }
 
-  Widget _buildTeam(String name, String? logo, bool isHome) {
-    return Column(
-      children: [
-        Container(
-          width: 60,
-          height: 60,
-          decoration: BoxDecoration(
-            color: const Color(0xFFE8F4F8),
-            shape: BoxShape.circle,
+  Widget _buildTeam(String teamName, String? logo, int? score) {
+    print(' Building team widget: $teamName');
+    print('   Logo URL: $logo');
+    print('   Is null: ${logo == null}');
+    print('   Is empty: ${logo?.isEmpty ?? true}');
+
+    return Expanded(
+      child: Column(
+        children: [
+          // ✅ ВИПРАВЛЕННЯ: Використовуємо SvgPicture замість Image.network
+          if (logo != null && logo.isNotEmpty)
+            SvgPicture.network(
+              logo,
+              width: 60,
+              height: 60,
+              placeholderBuilder: (context) => SizedBox(
+                width: 60,
+                height: 60,
+                child: Center(
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+              // Обробка помилок
+              fit: BoxFit.contain,
+            )
+          else
+            Container(
+              width: 60,
+              height: 60,
+              decoration: BoxDecoration(
+                color: Colors.grey[800],
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.sports_hockey, color: Colors.white54, size: 30),
+            ),
+          const SizedBox(height: 8),
+          Text(
+            teamName,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+            textAlign: TextAlign.center,
           ),
-          child: logo != null
-              ? Image.network(logo, errorBuilder: (_, __, ___) => _buildLogoFallback())
-              : _buildLogoFallback(),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          name.split(' ').last,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: Color(0xFF0F265C),
-            fontFamily: 'Lato',
-          ),
-          textAlign: TextAlign.center,
-        ),
-      ],
+          if (score != null)
+            Text(
+              score.toString(),
+              style: const TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+        ],
+      ),
     );
   }
 

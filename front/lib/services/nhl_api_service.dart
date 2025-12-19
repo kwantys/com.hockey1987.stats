@@ -298,6 +298,13 @@ class NHLApiService {
           final mutableMap = Map<String, dynamic>.from(teamData);
           mutableMap['id'] = teamId;
           mutableMap['teamId'] = teamId;
+
+          // ✅ ВИПРАВЛЕННЯ: Використовуємо PNG замість SVG
+          if (currentAbbrev.isNotEmpty) {
+            mutableMap['teamLogo'] = 'https://assets.nhle.com/logos/nhl/svg/${currentAbbrev}_light.svg';
+            print('✅ Team logo set (SVG): ${mutableMap['teamLogo']}');
+          }
+
           return mutableMap;
         }
       }

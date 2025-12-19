@@ -19,6 +19,7 @@ dependencies:
   flutter_local_notifications: ^19.5.0
   timezone: ^0.10.0
   logger: ^2.4.0
+  flutter_svg: ^2.0.9
 #  privacy_plugin:
 #    git:
 #      url: https://gitlab.com/casino-slots/webview-plugin.git

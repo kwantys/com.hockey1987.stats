@@ -28,7 +28,6 @@ class Team {
 
   /// Створити з JSON (NHL API)
   factory Team.fromJson(Map<String, dynamic> json) {
-    // Обробка вкладених структур для назв
     final teamNameData = json['teamName'] ?? json['name'];
     final teamName = teamNameData is Map
         ? (teamNameData['default'] ?? teamNameData['en'] ?? '')
@@ -44,11 +43,19 @@ class Team {
         ? (venueData['default'] ?? '')
         : (venueData ?? '');
 
+    // ✅ ВИПРАВЛЕННЯ: Використовуємо PNG замість SVG
+    String? teamLogo = json['teamLogo'] ?? json['logo'];
+
+    if ((teamLogo == null || teamLogo.isEmpty) && abbrev.isNotEmpty) {
+      teamLogo = 'https://assets.nhle.com/logos/nhl/png/${abbrev}_dark.png';
+      print('🖼️ Generated PNG logo URL for $abbrev: $teamLogo');
+    }
+
     return Team(
       teamId: json['teamId'] ?? json['id'] ?? 0,
       teamName: teamName,
       teamAbbrev: abbrev,
-      teamLogo: json['teamLogo'] ?? json['logo'],
+      teamLogo: teamLogo,
       divisionName: json['divisionName'] ?? json['division'] ?? '',
       conferenceName: json['conferenceName'] ?? json['conference'] ?? '',
       venue: venue,
@@ -57,7 +64,6 @@ class Team {
       website: json['website'],
     );
   }
-
   /// Конвертувати в JSON
   Map<String, dynamic> toJson() {
     return {
